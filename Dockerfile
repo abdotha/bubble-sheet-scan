@@ -4,10 +4,12 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies and security updates
+# Install system dependencies and build tools
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    build-essential \
+    python3-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -17,8 +19,8 @@ RUN useradd -m appuser
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with verbose output
+RUN pip install --no-cache-dir --verbose -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
