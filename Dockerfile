@@ -19,8 +19,13 @@ RUN useradd -m appuser
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python dependencies with verbose output
-RUN pip install --no-cache-dir --verbose -r requirements.txt
+# Install Python dependencies in stages
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir numpy==1.24.3 && \
+    pip install --no-cache-dir torch==2.1.2+cpu torchaudio==2.1.2+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html && \
+    pip install --no-cache-dir onnxruntime==1.16.3 && \
+    pip install --no-cache-dir fastapi==0.109.2 uvicorn==0.27.1 python-multipart==0.0.6 && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
 COPY . .
