@@ -1,18 +1,42 @@
 let modelAnswers = null;
 let numberOfQuestions = null;
 
-// Model answers form handling
-document.getElementById('modelAnswersForm').onsubmit = async (e) => {
+// File input handling
+const fileInput = document.getElementById('fileInput');
+const selectedFile = document.getElementById('selectedFile');
+const errorAlert = document.getElementById('errorAlert');
+const modelAnswersForm = document.getElementById('modelAnswersForm');
+const loading = document.getElementById('loading');
+const results = document.getElementById('results');
+const preview = document.getElementById('preview');
+const uploadForm = document.getElementById('uploadForm');
+
+// File input change handler
+fileInput.addEventListener('change', function(e) {
+    if (this.files.length > 0) {
+        selectedFile.textContent = `Selected file: ${this.files[0].name}`;
+    } else {
+        selectedFile.textContent = '';
+    }
+});
+
+// Model answers form submission
+modelAnswersForm.onsubmit = async (e) => {
     e.preventDefault();
-    const loading = document.getElementById('loading');
-    const results = document.getElementById('results');
+    
     const numberOfQuestions = document.getElementById('numberOfQuestions').value;
     const modelAnswers = document.getElementById('modelAnswers').value;
 
+    if (!numberOfQuestions || !modelAnswers) {
+        showError('Please fill in all fields');
+        return;
+    }
+
+    // Disable form while processing
+    setFormState(false);
+    
     // Reset UI
-    loading.style.display = 'block';
-    results.innerHTML = '';
-    errorAlert.style.display = 'none';
+    resetUI();
 
     try {
         const response = await fetch('/upload_model_answers', {
@@ -36,108 +60,120 @@ document.getElementById('modelAnswersForm').onsubmit = async (e) => {
     } catch (error) {
         showError(error.message);
     } finally {
-        loading.style.display = 'none';
+        setFormState(true);
     }
 };
 
-// File input handling
-const fileInput = document.getElementById('fileInput');
-const selectedFile = document.getElementById('selectedFile');
-const errorAlert = document.getElementById('errorAlert');
-const modelAnswersForm = document.getElementById('modelAnswersForm');
-
-// File input change handler
-fileInput.addEventListener('change', function(e) {
-    if (this.files.length > 0) {
-        selectedFile.textContent = `Selected file: ${this.files[0].name}`;
-    } else {
-        selectedFile.textContent = '';
-    }
-});
-
-// Form submission
-document.getElementById('uploadForm').onsubmit = async (e) => {
+// Upload form submission
+uploadForm.onsubmit = async (e) => {
     e.preventDefault();
-    const loading = document.getElementById('loading');
-    const results = document.getElementById('results');
-    const preview = document.getElementById('preview');
-
+    
     if (!fileInput.files.length) {
-        showError('Please select a file');
+        showError('Please select a file first');
         return;
     }
 
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-
+    // Disable form while processing
+    setFormState(false);
+    
     // Reset UI
-    loading.style.display = 'block';
-    results.innerHTML = '';
-    preview.style.display = 'none';
-    errorAlert.style.display = 'none';
+    resetUI();
 
     try {
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
         const response = await fetch('/evaluate', {
             method: 'POST',
             body: formData
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.detail || 'Failed to process image');
         }
-        
+
         const data = await response.json();
-        
+
         if (data.error) {
             showError(data.error);
             return;
         }
 
-        // Display evaluation results
-        let resultsHtml = '<h2>Evaluation Results</h2>';
-        resultsHtml += '<div class="table-responsive"><table class="table table-striped results-table">';
-        resultsHtml += '<thead><tr><th>Question</th><th>Student Answer</th><th>Correct Answer</th><th>Result</th></tr></thead><tbody>';
-        
-        for (const [question, details] of Object.entries(data.results)) {
-            const questionNum = parseInt(question.replace('question_', ''));
-            const studentAnswer = details.student_answer ? details.student_answer.join(', ') : 'No Answer';
-            const correctAnswer = details.correct_answer;
-            const isCorrect = details.is_correct ? '✓' : '✗';
-            const rowClass = details.is_correct ? 'table-success' : 'table-danger';
-
-            resultsHtml += `<tr class="${rowClass}">
-                <td>${questionNum}</td>
-                <td>${studentAnswer}</td>
-                <td>${correctAnswer}</td>
-                <td>${isCorrect}</td>
-            </tr>`;
-        }
-        
-        resultsHtml += '</tbody></table></div>';
-        
-        // Add summary
-        resultsHtml += `<div class="alert alert-info">
-            <strong>Score:</strong> ${data.score} out of ${data.total_questions} (${data.percentage}%)
-        </div>`;
-        
-        results.innerHTML = resultsHtml;
-        
-        // Display combined image
-        if (data.combined_image) {
-            preview.src = data.combined_image + '?t=' + new Date().getTime();
-            preview.style.display = 'block';
-        }
+        await displayResults(data);
     } catch (error) {
         showError(error.message);
     } finally {
-        loading.style.display = 'none';
+        setFormState(true);
     }
 };
+
+async function displayResults(data) {
+    // Display results
+    let resultsHtml = '<h2>Evaluation Results</h2>';
+    resultsHtml += '<div class="table-responsive"><table class="table table-striped results-table">';
+    resultsHtml += '<thead><tr><th>Question</th><th>Student Answer</th><th>Correct Answer</th><th>Result</th></tr></thead><tbody>';
+
+    for (const [question, details] of Object.entries(data.results)) {
+        const questionNum = parseInt(question.replace('question_', ''));
+        const studentAnswer = details.student_answer ? details.student_answer.join(', ') : 'No Answer';
+        const correctAnswer = details.correct_answer;
+        const isCorrect = details.is_correct ? '✓' : '✗';
+        const rowClass = details.is_correct ? 'table-success' : 'table-danger';
+
+        resultsHtml += `<tr class="${rowClass}">
+            <td>${questionNum}</td>
+            <td>${studentAnswer}</td>
+            <td>${correctAnswer}</td>
+            <td>${isCorrect}</td>
+        </tr>`;
+    }
+
+    resultsHtml += '</tbody></table></div>';
+    resultsHtml += `<div class="alert alert-info">
+        <strong>Score:</strong> ${data.score} out of ${data.total_questions} (${data.percentage}%)
+    </div>`;
+    results.innerHTML = resultsHtml;
+
+    // Display combined image if available
+    if (data.combined_image) {
+        await loadImage(data.combined_image);
+    }
+}
+
+function loadImage(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            preview.src = src + '?t=' + new Date().getTime();
+            preview.style.display = 'block';
+            resolve();
+        };
+        img.onerror = () => {
+            showError('Failed to load processed image');
+            reject();
+        };
+        img.src = src;
+    });
+}
+
+function setFormState(enabled) {
+    const submitButtons = document.querySelectorAll('button[type="submit"]');
+    submitButtons.forEach(button => button.disabled = !enabled);
+    loading.style.display = enabled ? 'none' : 'block';
+}
+
+function resetUI() {
+    loading.style.display = 'block';
+    results.innerHTML = '';
+    preview.style.display = 'none';
+    errorAlert.style.display = 'none';
+}
 
 function showError(message) {
     errorAlert.textContent = message;
     errorAlert.style.display = 'block';
+    loading.style.display = 'none';
 }
 
 function showSuccess(message) {
