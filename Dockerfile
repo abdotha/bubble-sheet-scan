@@ -37,10 +37,14 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/static /app/templates /app/output/results /app/output/temp && \
-    chown -R appuser:appuser /app
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app
 
 # Copy the application files
 COPY --chown=appuser:appuser . .
+
+# Ensure directories are writable
+RUN chmod -R 777 /app/output /app/static
 
 # Switch to non-root user
 USER appuser
