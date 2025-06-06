@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import glob
 import asyncio
+import uuid
 
 # Configure logging
 logging.basicConfig(
@@ -76,6 +77,38 @@ class FileManager:
             logger.info("Temp directory cleaned successfully")
         except Exception as e:
             logger.error(f"Error cleaning temp directory: {e}")
+
+    def __init__(self):
+        self.base_dir = Path(OUTPUT_DIR)
+        self.results_dir = self.base_dir / "results"
+        self.temp_dir = self.base_dir / "temp"
+        
+        # Create directories if they don't exist
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+    
+    def generate_unique_id(self):
+        """Generate a unique ID for file processing"""
+        return str(uuid.uuid4())
+    
+    def save_uploaded_file(self, file: UploadFile, job_id: str) -> str:
+        """Save an uploaded file and return its path"""
+        # Create job-specific directory
+        job_dir = self.temp_dir / job_id
+        job_dir.mkdir(exist_ok=True)
+        
+        # Save file
+        file_path = job_dir / f"upload_{int(time.time())}.jpg"
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        return str(file_path)
+    
+    def cleanup_files(self, job_id: str):
+        """Clean up files for a specific job"""
+        job_dir = self.temp_dir / job_id
+        if job_dir.exists():
+            shutil.rmtree(job_dir)
 
 class BubbleSheetValidator:
     """Handles validation of bubble sheet results"""
@@ -147,6 +180,9 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # Templates
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+# Initialize file manager
+file_manager = FileManager()
+
 # Store processing status
 processing_status = {}
 
@@ -191,7 +227,7 @@ async def upload_file(file: UploadFile = File(...), background_tasks: Background
                     return
                 
                 # Combine images
-                combined_image_path = combine_images(RESULTS_DIR)
+                combined_image_path = combine_images(OUTPUT_DIR)
                 
                 if combined_image_path:
                     # Update results with image path
@@ -315,7 +351,7 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...), background_tasks: 
                 percentage = (correct_answers / total_questions) * 100 if total_questions > 0 else 0
                 
                 # Combine images
-                combined_image_path = combine_images(RESULTS_DIR)
+                combined_image_path = combine_images(OUTPUT_DIR)
                 
                 if combined_image_path:
                     # Update results with image path
