@@ -35,21 +35,22 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir opencv-python-headless==4.9.0.80 && \
     pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application
-COPY . .
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/static /app/templates /app/output/results /app/output/temp && \
+    chown -R appuser:appuser /app
 
-# Create necessary directories and set permissions
-RUN mkdir -p output/results output/temp static templates \
-    && chown -R appuser:appuser /app
+# Copy the application files
+COPY --chown=appuser:appuser . .
 
 # Switch to non-root user
 USER appuser
 
 # Set environment variables
 ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
 
 # Expose the port
 EXPOSE 8080
 
 # Command to run the application
-CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT} 
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT} --workers 1 
