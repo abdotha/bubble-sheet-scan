@@ -94,19 +94,53 @@ uploadForm.onsubmit = async (e) => {
         }
 
         const data = await response.json();
-
-        if (data.error) {
-            showError(data.error);
-            return;
+        
+        if (data.job_id) {
+            // Start polling for status
+            await pollStatus(data.job_id);
+        } else {
+            throw new Error('No job ID received');
         }
-
-        await displayResults(data);
     } catch (error) {
         showError(error.message);
-    } finally {
         setFormState(true);
     }
 };
+
+async function pollStatus(jobId) {
+    try {
+        const response = await fetch(`/status/${jobId}`);
+        if (!response.ok) {
+            throw new Error('Failed to get status');
+        }
+
+        const status = await response.json();
+        
+        switch (status.status) {
+            case 'processing':
+                // Continue polling
+                setTimeout(() => pollStatus(jobId), 1000);
+                break;
+                
+            case 'completed':
+                if (status.error) {
+                    showError(status.error);
+                } else {
+                    await displayResults(status.result);
+                }
+                setFormState(true);
+                break;
+                
+            case 'error':
+                showError(status.error || 'Processing failed');
+                setFormState(true);
+                break;
+        }
+    } catch (error) {
+        showError(error.message);
+        setFormState(true);
+    }
+}
 
 async function displayResults(data) {
     // Display results
@@ -116,16 +150,16 @@ async function displayResults(data) {
 
     for (const [question, details] of Object.entries(data.results)) {
         const questionNum = parseInt(question.replace('question_', ''));
-        const studentAnswer = details.student_answer ? details.student_answer.join(', ') : 'No Answer';
-        const correctAnswer = details.correct_answer;
-        const isCorrect = details.is_correct ? '✓' : '✗';
-        const rowClass = details.is_correct ? 'table-success' : 'table-danger';
+        const studentAnswer = details.answer ? details.answer.join(', ') : 'No Answer';
+        const correctAnswer = details.model_answer;
+        const isCorrect = details.answer && details.answer.length === 1 && details.answer[0] === correctAnswer;
+        const rowClass = isCorrect ? 'table-success' : 'table-danger';
 
         resultsHtml += `<tr class="${rowClass}">
             <td>${questionNum}</td>
             <td>${studentAnswer}</td>
             <td>${correctAnswer}</td>
-            <td>${isCorrect}</td>
+            <td>${isCorrect ? '✓' : '✗'}</td>
         </tr>`;
     }
 

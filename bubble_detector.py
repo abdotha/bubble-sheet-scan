@@ -86,16 +86,17 @@ class BubbleDetector:
                 })
                 
                 if self.debug:
-                    print(f"Valid bubble - Fill ratio: {fill_ratio:.2f}, Mean intensity: {mean_val:.1f}")
+                    pass
+                    # print(f"Valid bubble - Fill ratio: {fill_ratio:.2f}, Mean intensity: {mean_val:.1f}")
             else:
                 rejected.append(cnt)
-                print(f"\nRejected Contour:")
-                print(f"  Area: {area:.1f} (min: {self.min_area}, max: {self.max_area})")
-                print(f"  Diameter: {diameter:.1f}px (min: {self.min_diameter}, max: {self.max_diameter})")
-                print(f"  Circularity: {circularity:.3f} (min: {self.min_circularity})")
-                print(f"  Aspect Ratio: {aspect_ratio:.2f} (max: {self.max_aspect_ratio})")
-                print(f"  Size OK: {size_ok}")
-                print(f"  Shape OK: {shape_ok}")
+                # print(f"\nRejected Contour:")
+                # print(f"  Area: {area:.1f} (min: {self.min_area}, max: {self.max_area})")
+                # print(f"  Diameter: {diameter:.1f}px (min: {self.min_diameter}, max: {self.max_diameter})")
+                # print(f"  Circularity: {circularity:.3f} (min: {self.min_circularity})")
+                # print(f"  Aspect Ratio: {aspect_ratio:.2f} (max: {self.max_aspect_ratio})")
+                # print(f"  Size OK: {size_ok}")
+                # print(f"  Shape OK: {shape_ok}")
         
         # Sort bubbles right-to-left (0 is rightmost, 3 is leftmost)
         bubbles.sort(key=lambda b: b['center'][0], reverse=True)
@@ -116,14 +117,14 @@ class BubbleDetector:
         if not bubbles:
             return []
             
-        # Print detailed fill ratio analysis
-        print("\n=== Fill Ratio Analysis ===")
-        for i, bubble in enumerate(bubbles):
-            print(f"Bubble {i+1}:")
-            print(f"  Fill ratio: {bubble['fill_ratio']:.3f}")
-            print(f"  Mean intensity: {bubble['mean_val']:.1f}")
-            print(f"  Area: {bubble['area']:.1f}")
-            print(f"  Circularity: {bubble['circularity']:.3f}")
+        # # Print detailed fill ratio analysis
+        # print("\n=== Fill Ratio Analysis ===")
+        # for i, bubble in enumerate(bubbles):
+        #     print(f"Bubble {i+1}:")
+        #     print(f"  Fill ratio: {bubble['fill_ratio']:.3f}")
+        #     print(f"  Mean intensity: {bubble['mean_val']:.1f}")
+        #     print(f"  Area: {bubble['area']:.1f}")
+        #     print(f"  Circularity: {bubble['circularity']:.3f}")
         
         # Find bubbles with fill ratio above threshold
         selected_idx = [i for i, b in enumerate(bubbles) 
@@ -229,13 +230,13 @@ class BubbleDetector:
             print(f"Model answer: {model_answer}")
             print(f"Correct answer: {model_answer in selected}")
         
-        print("\nBubble Statistics:")
-        for i, bubble in enumerate(bubbles):
-            status = "SELECTED" if i in selected else "unselected"
-            print(f"Bubble {i}: {status}")
-            print(f"  Diameter: {bubble['diameter']:.1f}px")
-            print(f"  Fill ratio: {bubble['fill_ratio']:.2f}")
-            print(f"  Circularity: {bubble['circularity']:.2f}\n")
+        # print("\nBubble Statistics:")
+        # for i, bubble in enumerate(bubbles):
+        #     status = "SELECTED" if i in selected else "unselected"
+        #     print(f"Bubble {i}: {status}")
+        #     print(f"  Diameter: {bubble['diameter']:.1f}px")
+        #     print(f"  Fill ratio: {bubble['fill_ratio']:.2f}")
+        #     print(f"  Circularity: {bubble['circularity']:.2f}\n")
         
         return result, bubbles, selected, rejected
 

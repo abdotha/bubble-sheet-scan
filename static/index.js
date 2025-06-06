@@ -77,59 +77,85 @@ uploadForm.onsubmit = async (e) => {
             method: 'POST',
             body: formData
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json();
-            throw new Error(errorData.detail || 'Failed to process image');
-        }
-        
-        const data = await response.json();
-        
-        if (data.error) {
-            showError(data.error);
-            return;
+            throw new Error(errorData.detail || 'Failed to upload file');
         }
 
-        await displayResults(data);
+        const data = await response.json();
         
+        if (data.job_id) {
+            // Start polling for status
+            await pollStatus(data.job_id);
+        } else {
+            throw new Error('No job ID received');
+        }
     } catch (error) {
         showError(error.message);
-    } finally {
         setFormState(true);
     }
 };
 
+async function pollStatus(jobId) {
+    try {
+        const response = await fetch(`/status/${jobId}`);
+        if (!response.ok) {
+            throw new Error('Failed to get status');
+        }
+
+        const status = await response.json();
+        
+        switch (status.status) {
+            case 'processing':
+                // Continue polling
+                setTimeout(() => pollStatus(jobId), 1000);
+                break;
+                
+            case 'completed':
+                if (status.error) {
+                    showError(status.error);
+                } else {
+                    await displayResults(status.result);
+                }
+                setFormState(true);
+                break;
+                
+            case 'error':
+                showError(status.error || 'Processing failed');
+                setFormState(true);
+                break;
+        }
+    } catch (error) {
+        showError(error.message);
+        setFormState(true);
+    }
+}
+
 async function displayResults(data) {
-    // Display results in a table
+    // Display results
     let resultsHtml = '<h2>Processing Results</h2>';
     resultsHtml += '<div class="table-responsive"><table class="table table-striped results-table">';
     resultsHtml += '<thead><tr><th>Question</th><th>Answer</th><th>Fill Ratios</th></tr></thead><tbody>';
-    
-    // Sort the results by question number
-    const sortedResults = Object.entries(data.results).sort((a, b) => {
-        const numA = parseInt(a[0].replace('question_', ''));
-        const numB = parseInt(b[0].replace('question_', ''));
-        return numA - numB;
-    });
-    
-    for (const [question, details] of sortedResults) {
+
+    for (const [question, details] of Object.entries(data)) {
         const questionNum = parseInt(question.replace('question_', ''));
         const answer = details.answer ? details.answer.join(', ') : 'No Answer';
-        const fillRatios = details.fill_ratios.map(r => r.toFixed(2)).join(', ');
-        
+        const fillRatios = details.fill_ratios ? details.fill_ratios.map(r => r.toFixed(2)).join(', ') : 'N/A';
+
         resultsHtml += `<tr>
             <td>${questionNum}</td>
             <td>${answer}</td>
             <td>${fillRatios}</td>
         </tr>`;
     }
-    
+
     resultsHtml += '</tbody></table></div>';
     results.innerHTML = resultsHtml;
-    
-    // Display combined image
-    if (data.combined_image) {
-        await loadImage(data.combined_image);
+
+    // Display combined image if available
+    if (data.question_1 && data.question_1.image) {
+        await loadImage(data.question_1.image);
     }
 }
 
@@ -150,8 +176,8 @@ function loadImage(src) {
 }
 
 function setFormState(enabled) {
-    const submitButton = uploadForm.querySelector('button[type="submit"]');
-    submitButton.disabled = !enabled;
+    const submitButtons = document.querySelectorAll('button[type="submit"]');
+    submitButtons.forEach(button => button.disabled = !enabled);
     loading.style.display = enabled ? 'none' : 'block';
 }
 
