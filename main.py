@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Request, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -15,8 +15,6 @@ from pathlib import Path
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import glob
-import asyncio
-import uuid
 
 # Configure logging
 logging.basicConfig(
@@ -35,7 +33,6 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 OUTPUT_DIR = BASE_DIR / "output" / "results"
 TEMP_DIR = BASE_DIR / "output" / "temp"
 COMBINED_IMAGE_PATH = TEMP_DIR / "combined_questions.jpg"
-PROCESSING_TIMEOUT = 300  # 5 minutes timeout
 
 class FileManager:
     """Handles file operations and directory management"""
@@ -77,38 +74,6 @@ class FileManager:
             logger.info("Temp directory cleaned successfully")
         except Exception as e:
             logger.error(f"Error cleaning temp directory: {e}")
-
-    def __init__(self):
-        self.base_dir = Path(OUTPUT_DIR)
-        self.results_dir = self.base_dir / "results"
-        self.temp_dir = self.base_dir / "temp"
-        
-        # Create directories if they don't exist
-        self.results_dir.mkdir(parents=True, exist_ok=True)
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
-    
-    def generate_unique_id(self):
-        """Generate a unique ID for file processing"""
-        return str(uuid.uuid4())
-    
-    def save_uploaded_file(self, file: UploadFile, job_id: str) -> str:
-        """Save an uploaded file and return its path"""
-        # Create job-specific directory
-        job_dir = self.temp_dir / job_id
-        job_dir.mkdir(exist_ok=True)
-        
-        # Save file
-        file_path = job_dir / f"upload_{int(time.time())}.jpg"
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        
-        return str(file_path)
-    
-    def cleanup_files(self, job_id: str):
-        """Clean up files for a specific job"""
-        job_dir = self.temp_dir / job_id
-        if job_dir.exists():
-            shutil.rmtree(job_dir)
 
 class BubbleSheetValidator:
     """Handles validation of bubble sheet results"""
@@ -180,90 +145,76 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 # Templates
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# Initialize file manager
-file_manager = FileManager()
-
-# Store processing status
-processing_status = {}
-
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     """Serve the main page"""
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/upload")
-async def upload_file(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+async def upload_file(file: UploadFile = File(...)):
     """Upload and process a bubble sheet image"""
     try:
-        # Generate unique ID for this processing job
-        job_id = file_manager.generate_unique_id()
-        processing_status[job_id] = {"status": "processing", "error": None, "result": None}
+        # Clean up directories before processing
+        FileManager.cleanup_output_folder()
+        FileManager.cleanup_static_folder()
         
-        # Save uploaded file
-        file_path = file_manager.save_uploaded_file(file, job_id)
+        # Generate unique filename with timestamp
+        timestamp = int(time.time())
+        filename = f"bubble_sheet_{timestamp}.jpg"
+        file_path = OUTPUT_DIR / filename
         
-        # Process in background
-        async def process_file():
-            try:
-                # Process the bubble sheet
-                results = process_bubble_sheet(file_path, OUTPUT_DIR)
-                
-                if results is None:
-                    processing_status[job_id] = {
-                        "status": "error",
-                        "error": "Failed to process bubble sheet",
-                        "result": None
-                    }
-                    return
-                
-                # Validate results
-                validator = BubbleSheetValidator()
-                if not validator.validate_results(results):
-                    processing_status[job_id] = {
-                        "status": "error",
-                        "error": "Invalid bubble sheet detected. Please ensure your image has all bubbles clearly visible and try again.",
-                        "result": None
-                    }
-                    return
-                
-                # Combine images
-                combined_image_path = combine_images(OUTPUT_DIR)
-                
-                if combined_image_path:
-                    # Update results with image path
-                    for question_key in results:
-                        results[question_key]['image'] = f"/static/{os.path.basename(combined_image_path)}"
-                
-                processing_status[job_id] = {
-                    "status": "completed",
-                    "error": None,
-                    "result": results
-                }
-                
-            except Exception as e:
-                logger.error(f"Error processing file: {str(e)}")
-                processing_status[job_id] = {
-                    "status": "error",
-                    "error": str(e),
-                    "result": None
-                }
-            finally:
-                # Cleanup after processing
-                file_manager.cleanup_files(job_id)
+        # Save the uploaded file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
         
-        # Start background processing
-        asyncio.create_task(process_file())
+        # Process the image using bubble scanner
+        results = process_bubble_sheet(str(file_path))
         
-        # Return job ID immediately
-        return JSONResponse({
-            "job_id": job_id,
-            "status": "processing",
-            "message": "File upload successful. Processing started."
-        })
+        if results is None:
+            raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
         
+        # Validate the results
+        if not BubbleSheetValidator.validate_results(results):
+            logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid bubble sheet detected. Please ensure your image has all bubbles clearly visible and try again."
+            )
+        
+        # After processing, combine all images
+        combine_images()
+        
+        # Check if combined image exists
+        combined_image_path = STATIC_DIR / "combined_questions.jpg"
+        if not combined_image_path.exists():
+            return JSONResponse({
+                "results": results,
+                "error": "Failed to generate combined image"
+            })
+        
+        # Prepare response data
+        response_data = {
+            "results": results,
+            "combined_image": "/static/combined_questions.jpg"
+        }
+        
+        # Save JSON response to file
+        json_filename = f"results_{timestamp}.json"
+        json_path = OUTPUT_DIR / json_filename
+        with open(json_path, "w") as f:
+            json.dump(response_data, f, indent=4)
+        
+        return JSONResponse(response_data)
+        
+    except HTTPException as he:
+        # Re-raise HTTP exceptions
+        raise he
     except Exception as e:
-        logger.error(f"Error in upload_file: {str(e)}")
+        logger.error(f"Error processing file: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up output directory after processing
+        FileManager.cleanup_output_folder()
 
 @app.get("/evaluate", response_class=HTMLResponse)
 async def evaluation_page(request: Request):
@@ -295,12 +246,15 @@ async def upload_model_answers(model_answers: ModelAnswers):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/evaluate")
-async def evaluate_bubble_sheet(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
+async def evaluate_bubble_sheet(file: UploadFile = File(...)):
     """Evaluate a bubble sheet against stored model answers"""
     try:
-        # Generate unique ID for this processing job
-        job_id = file_manager.generate_unique_id()
-        processing_status[job_id] = {"status": "processing", "error": None, "result": None}
+        # Check if model answers file exists
+        if not MODEL_ANSWERS_FILE.exists():
+            raise HTTPException(
+                status_code=400,
+                detail="No model answers found. Please upload model answers first using /upload_model_answers endpoint."
+            )
         
         # Load model answers from JSON file
         try:
@@ -313,102 +267,154 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...), background_tasks: 
                 detail="Error loading model answers. Please try uploading them again."
             )
         
-        # Save uploaded file
-        file_path = file_manager.save_uploaded_file(file, job_id)
+        # Clean up directories before processing
+        FileManager.cleanup_output_folder()
+        FileManager.cleanup_static_folder()
         
-        # Process in background
-        async def process_evaluation():
+        # Generate unique filename with timestamp
+        timestamp = int(time.time())
+        filename = f"bubble_sheet_{timestamp}.jpg"
+        file_path = OUTPUT_DIR / filename
+        
+        # Save the uploaded file
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Process the image using bubble scanner
+        results = process_bubble_sheet(str(file_path), model_answers=model_answers.answers)
+        
+        if results is None:
+            raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
+        
+        # Log the results for debugging
+        # logger.info(f"Bubble sheet processing results: {json.dumps(results, indent=2)}")
+        
+        # Validate the results
+        if not BubbleSheetValidator.validate_results(results):
+            logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid bubble sheet detected. Please ensure your image has all bubbles clearly visible and try again."
+            )
+        
+        # After processing, combine all images
+        combine_images(output_dir='output/temp')
+        
+        # Check if combined image exists
+        combined_image_path = COMBINED_IMAGE_PATH
+        if not combined_image_path.exists():
+            return JSONResponse({
+                "error": "Failed to generate combined image"
+            })
+        
+        # Evaluate answers
+        evaluation_results = []
+        correct_count = 0
+        
+        # Log model answers for debugging
+        logger.info(f"Model answers: {model_answers.model_dump()}")
+        
+        for i in range(model_answers.number_of_questions):
+            question_key = f"question_{i+1}"
             try:
-                # Process the bubble sheet with model answers
-                results = process_bubble_sheet(file_path, OUTPUT_DIR, model_answers.answers)
+                if question_key not in results:
+                    logger.warning(f"Question {i+1} not found in results")
+                    student_answers = []
+                else:
+                    question_data = results[question_key]
+                    if not isinstance(question_data, dict):
+                        logger.warning(f"Invalid data format for question {i+1}: {question_data}")
+                        student_answers = []
+                    else:
+                        student_answers = question_data.get('answer', [])
+                        if student_answers is None:
+                            student_answers = []
                 
-                if results is None:
-                    processing_status[job_id] = {
-                        "status": "error",
-                        "error": "Failed to process bubble sheet",
-                        "result": None
-                    }
-                    return
+                correct_answer = model_answers.answers[i]
                 
-                # Validate results
-                validator = BubbleSheetValidator()
-                if not validator.validate_results(results):
-                    processing_status[job_id] = {
-                        "status": "error",
-                        "error": "Invalid bubble sheet detected. Please ensure your image has all bubbles clearly visible and try again.",
-                        "result": None
-                    }
-                    return
+                # Get the student's answer (first answer if multiple)
+                student_answer = student_answers[0] if student_answers else None
                 
-                # Calculate score
-                total_questions = len(results)
-                correct_answers = sum(1 for q in results.values() 
-                                   if q.get('answer') is not None and 
-                                   q.get('model_answer') is not None and 
-                                   q['answer'] == q['model_answer'])
+                # Check if student selected multiple answers
+                has_multiple_answers = len(student_answers) > 1
                 
-                score = correct_answers
-                percentage = (correct_answers / total_questions) * 100 if total_questions > 0 else 0
+                # Mark as correct if:
+                # 1. Student selected exactly one answer
+                # 2. That answer matches the correct answer (both in 4-0 format)
+                is_correct = not has_multiple_answers and student_answer == correct_answer
                 
-                # Combine images
-                combined_image_path = combine_images(OUTPUT_DIR)
+                if is_correct:
+                    correct_count += 1
                 
-                if combined_image_path:
-                    # Update results with image path
-                    for question_key in results:
-                        results[question_key]['image'] = f"/static/{os.path.basename(combined_image_path)}"
+                # Format student answer for display
+                if not student_answers:
+                    student_answer_display = "No Answer"
+                elif has_multiple_answers:
+                    student_answer_display = f"Multiple: {student_answers}"  # Already in 4-0 format
+                else:
+                    student_answer_display = str(student_answer)  # Already in 4-0 format
                 
-                processing_status[job_id] = {
-                    "status": "completed",
-                    "error": None,
-                    "result": {
-                        "results": results,
-                        "score": score,
-                        "total_questions": total_questions,
-                        "percentage": percentage,
-                        "combined_image": f"/static/{os.path.basename(combined_image_path)}" if combined_image_path else None
-                    }
-                }
+                # Get fill ratios for debugging
+                fill_ratios = question_data.get('fill_ratios', []) if isinstance(question_data, dict) else []
+                
+                evaluation_results.append({
+                    "question": i + 1,
+                    "student_answers": student_answers,
+                    "student_answer_display": student_answer_display,
+                    "correct_answer": correct_answer,
+                    "is_correct": is_correct,
+                    "has_multiple_answers": has_multiple_answers,
+                    "fill_ratios": fill_ratios  # Add fill ratios for debugging
+                })
+                
+                # Log each question evaluation for debugging
+                logger.info(f"Question {i+1} evaluation: student={student_answers}, display={student_answer_display}, correct={correct_answer}, is_correct={is_correct}, multiple_answers={has_multiple_answers}, fill_ratios={fill_ratios}")
                 
             except Exception as e:
-                logger.error(f"Error processing evaluation: {str(e)}")
-                processing_status[job_id] = {
-                    "status": "error",
+                logger.error(f"Error evaluating question {i+1}: {e}")
+                evaluation_results.append({
+                    "question": i + 1,
                     "error": str(e),
-                    "result": None
-                }
-            finally:
-                # Cleanup after processing
-                file_manager.cleanup_files(job_id)
+                    "student_answers": [],
+                    "student_answer_display": "Error",
+                    "correct_answer": model_answers.answers[i],
+                    "is_correct": False,
+                    "has_multiple_answers": False,
+                    "fill_ratios": []
+                })
         
-        # Start background processing
-        asyncio.create_task(process_evaluation())
+        # Calculate score
+        score = (correct_count / model_answers.number_of_questions) * 100
         
-        # Return job ID immediately
-        return JSONResponse({
-            "job_id": job_id,
-            "status": "processing",
-            "message": "File upload successful. Processing started."
-        })
+        # Prepare response data
+        response_data = {
+            "evaluation_results": evaluation_results,
+            "summary": {
+                "total_questions": model_answers.number_of_questions,
+                "correct_answers": correct_count,
+                "score": score,
+                "questions_with_multiple_answers": sum(1 for r in evaluation_results if r.get('has_multiple_answers', False))
+            },
+            "combined_image": "/output/combined_questions.jpg"
+        }
         
-    except Exception as e:
-        logger.error(f"Error in evaluate: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Save JSON response to file
+        json_filename = f"evaluation_{timestamp}.json"
+        json_path = OUTPUT_DIR / json_filename
+        with open(json_path, "w") as f:
+            json.dump(response_data, f, indent=4)
 
-@app.get("/status/{job_id}")
-async def get_status(job_id: str):
-    if job_id not in processing_status:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    status = processing_status[job_id]
-    
-    # If processing is complete or error, clean up the status after returning
-    if status["status"] in ["completed", "error"]:
-        result = status.copy()
-        del processing_status[job_id]
-        return result
-    
-    return status
+        return JSONResponse(response_data)
+        
+    except HTTPException as he:
+        # Re-raise HTTP exceptions
+        raise he
+    except Exception as e:
+        logger.error(f"Error processing file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up output directory after processing
+        FileManager.cleanup_output_folder()
 
 @app.get("/output/combined_questions.jpg")
 def get_combined_image():

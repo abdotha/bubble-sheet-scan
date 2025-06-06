@@ -1,17 +1,45 @@
 let modelAnswers = null;
 let numberOfQuestions = null;
 
+// Model answers form handling
+document.getElementById('modelAnswersForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const answersInput = document.getElementById('modelAnswers').value;
+    numberOfQuestions = parseInt(document.getElementById('numberOfQuestions').value);
+    
+    try {
+        const answers = answersInput.split(',').map(a => parseInt(a.trim()));
+        if (answers.length !== numberOfQuestions) {
+            throw new Error('Number of answers must match the number of questions');
+        }
+
+        const response = await fetch('/upload_model_answers', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                number_of_questions: numberOfQuestions,
+                answers: answers
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to upload model answers');
+        }
+
+        showError('Model answers saved successfully!', 'success');
+    } catch (error) {
+        showError(error.message);
+    }
+};
+
 // File input handling
 const fileInput = document.getElementById('fileInput');
 const selectedFile = document.getElementById('selectedFile');
 const errorAlert = document.getElementById('errorAlert');
-const modelAnswersForm = document.getElementById('modelAnswersForm');
-const loading = document.getElementById('loading');
-const results = document.getElementById('results');
-const preview = document.getElementById('preview');
-const uploadForm = document.getElementById('uploadForm');
 
-// File input change handler
 fileInput.addEventListener('change', function(e) {
     if (this.files.length > 0) {
         selectedFile.textContent = `Selected file: ${this.files[0].name}`;
@@ -20,200 +48,86 @@ fileInput.addEventListener('change', function(e) {
     }
 });
 
-// Model answers form submission
-modelAnswersForm.onsubmit = async (e) => {
+// Form submission
+document.getElementById('uploadForm').onsubmit = async (e) => {
     e.preventDefault();
-    
-    const numberOfQuestions = document.getElementById('numberOfQuestions').value;
-    const modelAnswers = document.getElementById('modelAnswers').value;
+    const loading = document.getElementById('loading');
+    const results = document.getElementById('results');
+    const preview = document.getElementById('preview');
 
-    if (!numberOfQuestions || !modelAnswers) {
-        showError('Please fill in all fields');
-        return;
-    }
-
-    // Disable form while processing
-    setFormState(false);
-    
-    // Reset UI
-    resetUI();
-
-    try {
-        const response = await fetch('/upload_model_answers', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                number_of_questions: parseInt(numberOfQuestions),
-                answers: modelAnswers.split(',').map(a => parseInt(a.trim()))
-            })
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Failed to submit model answers');
-        }
-
-        const data = await response.json();
-        showSuccess('Model answers submitted successfully');
-    } catch (error) {
-        showError(error.message);
-    } finally {
-        setFormState(true);
-    }
-};
-
-// Upload form submission
-uploadForm.onsubmit = async (e) => {
-    e.preventDefault();
-    
     if (!fileInput.files.length) {
-        showError('Please select a file first');
+        showError('Please select a file');
         return;
     }
 
-    // Disable form while processing
-    setFormState(false);
-    
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
     // Reset UI
-    resetUI();
-
-    try {
-        const formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-
-        const response = await fetch('/evaluate', {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Failed to process image');
-        }
-
-        const data = await response.json();
-        
-        if (data.job_id) {
-            // Start polling for status
-            await pollStatus(data.job_id);
-        } else {
-            throw new Error('No job ID received');
-        }
-    } catch (error) {
-        showError(error.message);
-        setFormState(true);
-    }
-};
-
-async function pollStatus(jobId) {
-    try {
-        const response = await fetch(`/status/${jobId}`);
-        if (!response.ok) {
-            throw new Error('Failed to get status');
-        }
-
-        const status = await response.json();
-        
-        switch (status.status) {
-            case 'processing':
-                // Continue polling
-                setTimeout(() => pollStatus(jobId), 1000);
-                break;
-                
-            case 'completed':
-                if (status.error) {
-                    showError(status.error);
-                } else {
-                    await displayResults(status.result);
-                }
-                setFormState(true);
-                break;
-                
-            case 'error':
-                showError(status.error || 'Processing failed');
-                setFormState(true);
-                break;
-        }
-    } catch (error) {
-        showError(error.message);
-        setFormState(true);
-    }
-}
-
-async function displayResults(data) {
-    // Display results
-    let resultsHtml = '<h2>Evaluation Results</h2>';
-    resultsHtml += '<div class="table-responsive"><table class="table table-striped results-table">';
-    resultsHtml += '<thead><tr><th>Question</th><th>Student Answer</th><th>Correct Answer</th><th>Result</th></tr></thead><tbody>';
-
-    for (const [question, details] of Object.entries(data.results)) {
-        const questionNum = parseInt(question.replace('question_', ''));
-        const studentAnswer = details.answer ? details.answer.join(', ') : 'No Answer';
-        const correctAnswer = details.model_answer;
-        const isCorrect = details.answer && details.answer.length === 1 && details.answer[0] === correctAnswer;
-        const rowClass = isCorrect ? 'table-success' : 'table-danger';
-
-        resultsHtml += `<tr class="${rowClass}">
-            <td>${questionNum}</td>
-            <td>${studentAnswer}</td>
-            <td>${correctAnswer}</td>
-            <td>${isCorrect ? '✓' : '✗'}</td>
-        </tr>`;
-    }
-
-    resultsHtml += '</tbody></table></div>';
-    resultsHtml += `<div class="alert alert-info">
-        <strong>Score:</strong> ${data.score} out of ${data.total_questions} (${data.percentage}%)
-    </div>`;
-    results.innerHTML = resultsHtml;
-
-    // Display combined image if available
-    if (data.combined_image) {
-        await loadImage(data.combined_image);
-    }
-}
-
-function loadImage(src) {
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => {
-            preview.src = src + '?t=' + new Date().getTime();
-            preview.style.display = 'block';
-            resolve();
-        };
-        img.onerror = () => {
-            showError('Failed to load processed image');
-            reject();
-        };
-        img.src = src;
-    });
-}
-
-function setFormState(enabled) {
-    const submitButtons = document.querySelectorAll('button[type="submit"]');
-    submitButtons.forEach(button => button.disabled = !enabled);
-    loading.style.display = enabled ? 'none' : 'block';
-}
-
-function resetUI() {
     loading.style.display = 'block';
     results.innerHTML = '';
     preview.style.display = 'none';
     errorAlert.style.display = 'none';
-}
 
-function showError(message) {
+    try {
+        const response = await fetch('/evaluate', {
+            method: 'POST',
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to process image');
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            showError(data.error);
+            return;
+        }
+
+        // Display evaluation results
+        let resultsHtml = '<h2>Evaluation Results</h2>';
+        resultsHtml += '<div class="table-responsive"><table class="table table-striped results-table">';
+        resultsHtml += '<thead><tr><th>Question</th><th>Student Answer</th><th>Correct Answer</th><th>Status</th></tr></thead><tbody>';
+        
+        data.evaluation_results.forEach(result => {
+            resultsHtml += `<tr class="${result.is_correct ? 'table-success' : 'table-danger'}">
+                <td>${result.question}</td>
+                <td>${result.student_answer_display}</td>
+                <td>${result.correct_answer}</td>
+                <td>${result.is_correct ? '✓' : '✗'}</td>
+            </tr>`;
+        });
+        
+        resultsHtml += '</tbody></table></div>';
+        
+        // Add summary
+        resultsHtml += `
+            <div class="alert alert-info mt-3">
+                <h4>Summary</h4>
+                <p>Correct Answers: ${data.summary.correct_answers} out of ${data.summary.total_questions}</p>
+                <p>Score: ${data.summary.score.toFixed(2)}%</p>
+            </div>
+        `;
+        
+        results.innerHTML = resultsHtml;
+        
+        // Display combined image
+        if (data.combined_image) {
+            preview.src = data.combined_image + '?t=' + new Date().getTime();
+            preview.style.display = 'block';
+        }
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        loading.style.display = 'none';
+    }
+};
+
+function showError(message, type = 'danger') {
+    errorAlert.className = `alert alert-${type}`;
     errorAlert.textContent = message;
     errorAlert.style.display = 'block';
-    loading.style.display = 'none';
-}
-
-function showSuccess(message) {
-    const successAlert = document.createElement('div');
-    successAlert.className = 'alert alert-success';
-    successAlert.textContent = message;
-    document.querySelector('.container').insertBefore(successAlert, errorAlert);
-    setTimeout(() => successAlert.remove(), 3000);
 } 
