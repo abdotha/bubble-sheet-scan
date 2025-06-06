@@ -15,7 +15,7 @@ def get_section_question_number(section, local_number):
     }
     return section_offsets[section] + local_number
 
-def process_bubble_sheet(bubble_sheet_path, output_dir='output'):
+def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=None):
     """
     Process a bubble sheet image through the complete workflow:
     1. Read and preprocess the image
@@ -23,6 +23,11 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output'):
     3. Divide into thirds
     4. Process each section for questions
     5. Detect bubbles and analyze answers
+    
+    Args:
+        bubble_sheet_path: Path to the bubble sheet image
+        output_dir: Directory to save output files
+        model_answers: Optional list of model answers (1-based indices)
     """
     # Create output directories
     temp_dir = os.path.join(output_dir, 'temp')
@@ -51,7 +56,7 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output'):
 
     # Initialize bubble detector
     detector = BubbleDetector()
-    all_answers = []  # Store all answers in a single list
+    all_answers = []
 
     # Process each section
     for section_name, section_image in sections.items():
@@ -93,8 +98,13 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output'):
                 
             print(f"Question image size: {question_img.shape}")
             
+            # Get model answer for this question if available
+            model_answer = None
+            if model_answers is not None and 0 <= global_question_num - 1 < len(model_answers):
+                model_answer = model_answers[global_question_num - 1]
+            
             # Process question with bubble detector
-            result, bubbles, selected, rejected = detector.process(question_path)
+            result, bubbles, selected, rejected = detector.process(question_path, model_answer)
             
             if result is None:
                 print(f"Error: Failed to process question {global_question_num}")
@@ -122,13 +132,16 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output'):
                 'question_number': global_question_num,
                 'answer': answer,  # Will be None if no answer or invalid
                 'fill_ratios': [b['fill_ratio'] for b in bubbles],
-                'bubbles_detected': len(bubbles)
+                'bubbles_detected': len(bubbles),
+                'model_answer': model_answer
             }
             
             all_answers.append(question_result)
             
             print(f"Bubbles detected: {len(bubbles)}")
             print(f"Fill ratios: {[f'{r:.2f}' for r in question_result['fill_ratios']]}")
+            if model_answer is not None:
+                print(f"Model answer: {model_answer}")
 
     # Sort all answers by question number
     all_answers.sort(key=lambda x: x['question_number'])
@@ -140,7 +153,8 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output'):
         results_dict[question_key] = {
             'answer': q['answer'],
             'fill_ratios': q['fill_ratios'],
-            'bubbles_detected': q['bubbles_detected']
+            'bubbles_detected': q['bubbles_detected'],
+            'model_answer': q['model_answer']
         }
 
     # Save detailed results as JSON
@@ -158,9 +172,11 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output'):
             question_num = result['question_number']
             answer = result['answer']
             answer_text = str(answer) if answer is not None else 'No Answer'
+            model_answer = result['model_answer']
+            model_answer_text = f" (Model: {model_answer})" if model_answer is not None else ""
             
             f.write(f"Question {question_num}:\n")
-            f.write(f"Answer: {answer_text}\n")
+            f.write(f"Answer: {answer_text}{model_answer_text}\n")
             f.write(f"Fill ratios: {[f'{r:.2f}' for r in result['fill_ratios']]}\n")
             f.write("\n")
         

@@ -97,8 +97,11 @@ class BubbleDetector:
                 print(f"  Size OK: {size_ok}")
                 print(f"  Shape OK: {shape_ok}")
         
-        # Sort bubbles left-to-right
-        bubbles.sort(key=lambda b: b['center'][0])
+        # Sort bubbles right-to-left (0 is rightmost, 3 is leftmost)
+        bubbles.sort(key=lambda b: b['center'][0], reverse=True)
+        
+        # Ensure we only keep the first 4 bubbles (0-3)
+        bubbles = bubbles[:4]
         
         return bubbles, rejected
 
@@ -171,7 +174,39 @@ class BubbleDetector:
         
         return result
 
-    def process(self, img_path):
+    def visualize_with_answers(self, img, bubbles, rejected, selected_indices, model_answer):
+        """Visualize results with color coding based on model answer"""
+        result = img.copy()
+        
+        # Use selected_indices and model_answer directly (0 = leftmost)
+        for i, bubble in enumerate(bubbles):
+            # Get bounding rectangle
+            x, y, w, h = cv2.boundingRect(bubble['contour'])
+            
+            # Set color based on selection and answer status
+            if i in selected_indices and i == model_answer:
+                color = self.selected_color  # Green for correct answer (selected and model answer)
+                thickness = 3
+            elif i in selected_indices:
+                color = (0, 0, 255)  # Red for incorrect answer (selected but not model answer)
+                thickness = 3
+            else:
+                color = self.unselected_color
+                thickness = 1
+            
+            # Draw bubble contour (fill)
+            cv2.drawContours(result, [bubble['contour']], -1, color, thickness)
+            
+            # Draw bounding box
+            if i == model_answer:
+                box_color = self.selected_color  # Green for model answer
+            else:
+                box_color = (255, 0, 0)  # Blue for other bubbles
+            cv2.rectangle(result, (x, y), (x + w, y + h), box_color, 2)
+        
+        return result
+
+    def process(self, img_path, model_answer=None):
         img = cv2.imread(img_path)
         if img is None:
             print("Error: Could not load image")
@@ -179,17 +214,25 @@ class BubbleDetector:
         
         bubbles, rejected = self.find_bubbles(img)
         selected = self.analyze_selections(bubbles)
-        result = self.visualize(img, bubbles, rejected, selected)
+        
+        # Use appropriate visualization based on whether model_answer is provided
+        if model_answer is not None:
+            result = self.visualize_with_answers(img, bubbles, rejected, selected, model_answer)
+        else:
+            result = self.visualize(img, bubbles, rejected, selected)
         
         # Console reporting
         print("\n=== Final Results ===")
         print(f"Found {len(bubbles)} valid bubbles (rejected {len(rejected)} contours)")
-        print(f"Selected bubbles: {[i+1 for i in selected]}")
+        print(f"Selected bubbles: {selected}")
+        if model_answer is not None:
+            print(f"Model answer: {model_answer}")
+            print(f"Correct answer: {model_answer in selected}")
         
         print("\nBubble Statistics:")
         for i, bubble in enumerate(bubbles):
             status = "SELECTED" if i in selected else "unselected"
-            print(f"Bubble {i+1}: {status}")
+            print(f"Bubble {i}: {status}")
             print(f"  Diameter: {bubble['diameter']:.1f}px")
             print(f"  Fill ratio: {bubble['fill_ratio']:.2f}")
             print(f"  Circularity: {bubble['circularity']:.2f}\n")
@@ -199,10 +242,12 @@ class BubbleDetector:
 
 if __name__ == "__main__":
     detector = BubbleDetector()
-    input_img = r"output\results\question_40.jpg"
+    input_img = r"output\temp\bubble_sheet_left\questions\question_10.jpg"
     output_img = "processed.jpg"
     
-    result, bubbles, selected, rejected = detector.process(input_img)
+    # Example usage with model answer
+    model_answer = 4  # Replace with actual model answer
+    result, bubbles, selected, rejected = detector.process(input_img, model_answer)
     if result is not None:
         cv2.imwrite(output_img, result)
         print(f"Results saved to {output_img}")

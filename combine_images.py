@@ -2,7 +2,7 @@ from PIL import Image
 import os
 import math
 
-def combine_images():
+def combine_images(output_dir='static'):
     # Directory containing the images
     image_dir = 'output/results'
     
@@ -55,10 +55,11 @@ def combine_images():
             img3 = Image.open(os.path.join(image_dir, question_map[row + 1]))
             combined_image.paste(img3, (2 * cell_width, row * cell_height))
     
-    # Save the combined image in the static directory
-    os.makedirs('static', exist_ok=True)
-    combined_image.save('static/combined_questions.jpg')
-    print("Images combined successfully into 'static/combined_questions.jpg'")
+    # Save the combined image in the specified output directory
+    os.makedirs(output_dir, exist_ok=True)
+    combined_image_path = os.path.join(output_dir, 'combined_questions.jpg')
+    combined_image.save(combined_image_path)
+    print(f"Images combined successfully into '{combined_image_path}'")
 
 if __name__ == '__main__':
     combine_images() 
