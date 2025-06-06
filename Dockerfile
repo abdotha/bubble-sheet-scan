@@ -12,6 +12,10 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     libjpeg-dev \
     zlib1g-dev \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgl1-mesa-glx \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -28,6 +32,7 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir onnxruntime==1.16.3 && \
     pip install --no-cache-dir fastapi==0.109.2 uvicorn==0.27.1 python-multipart==0.0.6 && \
     pip install --no-cache-dir Pillow==10.2.0 && \
+    pip install --no-cache-dir opencv-python-headless==4.9.0.80 && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application
