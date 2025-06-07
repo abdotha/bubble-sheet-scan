@@ -1,9 +1,13 @@
-FROM python:3.10-slim
+# Use Python 3.12 slim image as base
+FROM python:3.12-slim
 
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies and build tools
+RUN apt-get update && apt-get install -y \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     build-essential \
     python3-dev \
     libjpeg-dev \
@@ -12,34 +16,46 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender-dev \
     libgl1-mesa-glx \
-    libglib2.0-0 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
-RUN useradd -m appuser && \
-    mkdir -p /app/output/results /app/output/temp /app/static /app/templates && \
-    chown -R appuser:appuser /app && \
-    chmod -R 755 /app && \
-    chmod -R 777 /app/output /app/static
+# Create a non-root user
+RUN useradd -m appuser
 
-# Copy requirements first
+# Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies in stages
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir numpy==1.26.4 && \
+    pip install --no-cache-dir torch==2.2.1+cpu torchvision==0.17.1+cpu torchaudio==2.2.1+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html && \
+    pip install --no-cache-dir onnxruntime==1.17.0 && \
+    pip install --no-cache-dir fastapi==0.110.0 uvicorn==0.27.1 python-multipart==0.0.9 && \
+    pip install --no-cache-dir Pillow==10.2.0 && \
+    pip install --no-cache-dir opencv-python-headless==4.9.0.80 && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copy application
+# Copy the rest of the application
 COPY . .
+
+# Create necessary directories and set permissions
+RUN mkdir -p /app/output/results /app/output/temp /app/static /app/templates && \
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app && \
+    chmod -R 777 /app/output /app/static && \
+    ls -la /app/output /app/static
+
+# Switch to non-root user
 USER appuser
 
-# Environment variables
+# Set environment variables
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 ENV LOG_LEVEL=DEBUG
 ENV PYTHONPATH=/app
 
+# Expose the port
 EXPOSE 8080
 
-CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT} --log-level debug
+# Command to run the application
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT} --log-level debug 
