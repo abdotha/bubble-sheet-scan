@@ -19,6 +19,9 @@ import base64
 from io import BytesIO
 import numpy as np
 import cv2
+from bubble_scanner import BubbleScanner
+from divide_questions import QuestionDivider
+from bubble_detector import BubbleDetector
 
 # Configure logging
 logging.basicConfig(
@@ -519,6 +522,40 @@ async def upload_base64(image_data: Base64Image):
     except Exception as e:
         logger.error(f"Error processing base64 image: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def process_image(img: np.ndarray) -> Dict[str, Any]:
+    """
+    Process a bubble sheet image and return the results
+    Args:
+        img: numpy array containing the image data
+    Returns:
+        Dictionary containing processing results
+    """
+    try:
+        logger.info("Starting image processing")
+        
+        # Create temporary directory for processing
+        temp_dir = Path("/tmp/output/temp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save the image temporarily
+        temp_image_path = temp_dir / "temp_input.jpg"
+        cv2.imwrite(str(temp_image_path), img)
+        
+        # Process the image using bubble scanner
+        scanner = BubbleScanner()
+        results = scanner.process(str(temp_image_path))
+        
+        if results is None:
+            logger.error("Failed to process image - results is None")
+            raise Exception("Failed to process image")
+            
+        logger.info("Image processing completed successfully")
+        return results
+        
+    except Exception as e:
+        logger.error(f"Error in process_image: {str(e)}")
+        raise
 
 if __name__ == "__main__":
     import uvicorn
