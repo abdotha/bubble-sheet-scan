@@ -8,6 +8,9 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first to leverage Docker cache
@@ -29,4 +32,4 @@ ENV PORT=8080
 EXPOSE 8080
 
 # Command to run the application
-CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT} 
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT}
