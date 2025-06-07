@@ -240,7 +240,7 @@ async def upload_file(file: UploadFile = File(...)):
         # Clean up output directory after processing
         FileManager.cleanup_output_folder()
 
-@app.get("/evaluate", response_class=HTMLResponse)
+@app.get("/evaluation", response_class=HTMLResponse)
 async def evaluation_page(request: Request):
     """Serve the evaluation page"""
     return templates.TemplateResponse("evaluation.html", {"request": request})
@@ -350,9 +350,9 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
                         logger.warning(f"Invalid data format for question {i+1}: {question_data}")
                         student_answers = []
                     else:
-                        student_answers = question_data.get('answer', [])
-                        if student_answers is None:
-                            student_answers = []
+                        # Use detected_answer for evaluation
+                        detected = question_data.get('detected_answer')
+                        student_answers = [detected] if detected is not None else []
                 
                 correct_answer = model_answers.answers[i]
                 
@@ -444,14 +444,14 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
 async def grade_bubble_sheet(file: UploadFile = File(...)):
     """
     Endpoint to grade a bubble sheet and return:
-    - Processed/graded image (base64, with green/red circles and score)
+    - Processed/graded image (base64, with green/red circles)
     - JSON with student answers (0-3 or null)
     - Student score
     """
     import cv2
     import base64
     from io import BytesIO
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image
 
     # Check if model answers file exists
     if not MODEL_ANSWERS_FILE.exists():
@@ -480,58 +480,28 @@ async def grade_bubble_sheet(file: UploadFile = File(...)):
     # Prepare student answers and grading
     student_answers = []
     correct_count = 0
+    multi_answers = []
     for i in range(model_answers.number_of_questions):
         question_key = f"question_{i+1}"
         qdata = results.get(question_key, {})
-        ans = qdata.get('answer')
-        if isinstance(ans, list) and len(ans) == 1:
-            student_answers.append(ans[0])
-        elif isinstance(ans, list) and len(ans) == 0:
-            student_answers.append(None)
-        elif isinstance(ans, list):
-            student_answers.append(ans[0])  # If multiple, take first
+        detected_answers = qdata.get('detected_answers', [])
+        # If more than one answer, mark as wrong
+        if isinstance(detected_answers, list) and len(detected_answers) > 1:
+            student_answers.append(detected_answers)
+            multi_answers.append(i+1)
+        elif isinstance(detected_answers, list) and len(detected_answers) == 1:
+            ans = detected_answers[0]
+            student_answers.append(ans)
+            if ans == model_answers.answers[i]:
+                correct_count += 1
         else:
-            student_answers.append(ans if ans is not None else None)
-        if student_answers[-1] == model_answers.answers[i]:
-            correct_count += 1
+            student_answers.append(None)
 
     # Draw on the combined image (from temp)
     combined_img_path = TEMP_DIR / "combined_questions.jpg"
     if not combined_img_path.exists():
         combine_images(output_dir=str(TEMP_DIR))
     pil_img = Image.open(str(combined_img_path)).convert("RGB")
-    draw = ImageDraw.Draw(pil_img)
-    # Font for score (fallback to default if not found)
-    try:
-        font = ImageFont.truetype("arial.ttf", 48)
-    except:
-        font = ImageFont.load_default()
-    # Draw score
-    score_text = f"Score = {correct_count}/{model_answers.number_of_questions}"
-    draw.text((20, 20), score_text, fill=(0, 51, 153), font=font)
-
-    # Draw circles for each question
-    grid_width, grid_height = 3, 15
-    cell_width = pil_img.width // grid_width
-    cell_height = pil_img.height // grid_height
-    for i, (student, correct) in enumerate(zip(student_answers, model_answers.answers)):
-        # Determine grid position
-        row = i % 15
-        col = 0 if i >= 30 else (1 if i >= 15 else 2)
-        x0 = col * cell_width
-        y0 = row * cell_height
-        # Bubble positions (estimate: 4 bubbles horizontally)
-        for b in range(4):
-            cx = x0 + int(cell_width * (0.15 + 0.2 * b))
-            cy = y0 + int(cell_height * 0.5)
-            r = int(min(cell_width, cell_height) * 0.12)
-            # Draw correct answer (green)
-            if b == correct:
-                draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], outline=(0, 200, 0), width=5)
-            # Draw student wrong answer (red)
-            if student is not None and b == student and student != correct:
-                draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], outline=(200, 0, 0), width=5)
-    # Encode image to base64
     buffered = BytesIO()
     pil_img.save(buffered, format="JPEG")
     img_base64 = base64.b64encode(buffered.getvalue()).decode()
@@ -539,7 +509,9 @@ async def grade_bubble_sheet(file: UploadFile = File(...)):
     return {
         "image_base64": img_base64,
         "student_answers": student_answers,
-        "correct_answers": correct_count
+        "correct_answers": correct_count,
+        "total_questions": model_answers.number_of_questions,
+        "multi_answer_questions": multi_answers
     }
 
 @app.get("/output/combined_questions.jpg")

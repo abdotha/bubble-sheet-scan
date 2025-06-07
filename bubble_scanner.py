@@ -116,33 +116,30 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
             
             # Determine the answer (0,1,2,3)
             answer = None
+            detected_answers = []
             if selected and len(selected) > 0:
                 # Filter out any indices >= 4
                 valid_selected = [s for s in selected if s < 4]
                 if valid_selected:
-                    # Take the first valid selected answer
-                    answer = valid_selected[0]
-                    print(f"Selected answer: {answer}")
+                    detected_answers = valid_selected
+                    answer = valid_selected[0]  # for backward compatibility
+                    print(f"Selected answers: {detected_answers}")
                 else:
                     print("No valid bubbles selected")
             else:
                 print("No answer selected")
-            
             # Store results
             question_result = {
                 'question_number': global_question_num,
-                'detected_answer': answer,  # Will be None if no answer or invalid
+                'detected_answer': answer,  # single answer for legacy
+                'detected_answers': detected_answers,  # list of all selected answers
                 'fill_ratios': [b['fill_ratio'] for b in bubbles],
                 'bubble_area': [b['area'] for b in bubbles],
                 'bubble_circularity': [b['circularity'] for b in bubbles],
                 'bubbles_detected': len(bubbles),
                 'model_answer': model_answer,
                 'rejected_areas': [
-                    {
-                        'circularity': b['circularity'],
-                        'area': b['area'],
-                        'reason': b.get('rejection_reason', 'Unknown')
-                    } for b in rejected
+                    {'circularity': b['circularity'], 'area': b['area'], 'reason': b.get('rejection_reason', 'Unknown')} for b in rejected
                 ] if rejected else []
             }
             
@@ -162,6 +159,7 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
         question_key = f"question_{q['question_number']}"
         results_dict[question_key] = {
             'detected_answer': q['detected_answer'],
+            'detected_answers': q.get('detected_answers', []),
             'fill_ratios': q['fill_ratios'],
             'bubble_area': q.get('bubble_area', []),
             'bubble_circularity': q.get('bubble_circularity', []),

@@ -65,7 +65,14 @@ document.addEventListener('DOMContentLoaded', function () {
                         return numA - numB;
                     }).forEach(key => {
                         const r = data.results[key];
-                        html += `<tr><td>${key.replace('question_', '')}</td><td>${Array.isArray(r.answer) ? r.answer.join(', ') : (r.answer ?? 'No Answer')}</td><td>${r.bubbles_detected ?? ''}</td><td>${Array.isArray(r.fill_ratios) ? r.fill_ratios.map(x => x.toFixed(2)).join(', ') : ''}</td><td>${Array.isArray(r.bubble_area) ? r.bubble_area.map(x => x.toFixed(2)).join(', ') : (r.bubble_area ?? '')}</td><td>${Array.isArray(r.bubble_circularity) ? r.bubble_circularity.map(x => x.toFixed(2)).join(', ') : (r.bubble_circularity ?? '')}</td></tr>`;
+                        // Use detected_answers (array) if present, else fallback to detected_answer
+                        let answerDisplay = 'No Answer';
+                        if (Array.isArray(r.detected_answers) && r.detected_answers.length > 0) {
+                            answerDisplay = r.detected_answers.join(', ');
+                        } else if (r.detected_answer !== undefined && r.detected_answer !== null) {
+                            answerDisplay = r.detected_answer;
+                        }
+                        html += `<tr><td>${key.replace('question_', '')}</td><td>${answerDisplay}</td><td>${r.bubbles_detected ?? ''}</td><td>${Array.isArray(r.fill_ratios) ? r.fill_ratios.map(x => x.toFixed(2)).join(', ') : ''}</td><td>${Array.isArray(r.bubble_area) ? r.bubble_area.map(x => x.toFixed(2)).join(', ') : (r.bubble_area ?? '')}</td><td>${Array.isArray(r.bubble_circularity) ? r.bubble_circularity.map(x => x.toFixed(2)).join(', ') : (r.bubble_circularity ?? '')}</td></tr>`;
                     });
                     html += `</tbody></table>`;
 
