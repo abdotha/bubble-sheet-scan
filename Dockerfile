@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install system dependencies with essential build tools
+# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
@@ -23,26 +23,31 @@ RUN useradd -m appuser && \
     chmod -R 755 /app && \
     chmod -R 777 /app/output /app/static
 
-# Copy requirements first
+# Copy requirements
 COPY requirements.txt .
 
-# Create cleaned requirements without local packages
-RUN grep -v "tts_arabic" requirements.txt > cleaned_requirements.txt
-
-# Install packages in stages with error handling
+# Install Python dependencies in optimized order
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir numpy==1.23.5 && \
-    { pip install --no-cache-dir onnxruntime==1.16.3 || pip install --no-cache-dir onnxruntime; } && \
-    pip install --no-cache-dir torch==2.0.1+cpu torchaudio==2.0.2+cpu \
+    # Install numpy first as it's a common dependency
+    pip install --no-cache-dir numpy==2.2.4 && \
+    # Install PyTorch with CPU-only version
+    pip install --no-cache-dir torch==2.6.0+cpu torchaudio==2.6.0+cpu \
         --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r cleaned_requirements.txt || \
-    { echo "Primary installation failed, trying alternative approach..." && \
-      pip install --no-cache-dir -r cleaned_requirements.txt --ignore-installed; }
+    # Replace onnxruntime-gpu with CPU version
+    pip install --no-cache-dir onnxruntime==1.16.3 && \
+    # Install remaining requirements
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application
 COPY . .
 USER appuser
 
-ENV PORT=8080 PYTHONUNBUFFERED=1 LOG_LEVEL=DEBUG PYTHONPATH=/app
+# Environment variables
+ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
+ENV LOG_LEVEL=DEBUG
+ENV PYTHONPATH=/app
+
 EXPOSE 8080
+
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "debug"]
