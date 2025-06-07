@@ -32,8 +32,8 @@ REQUIRED_BUBBLES_PER_QUESTION = 4
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
-OUTPUT_DIR = BASE_DIR / "output" / "results"
-TEMP_DIR = BASE_DIR / "output" / "temp"
+OUTPUT_DIR = Path("/tmp") / "output" / "results"
+TEMP_DIR = Path("/tmp") / "output" / "temp"
 COMBINED_IMAGE_PATH = TEMP_DIR / "combined_questions.jpg"
 
 class FileManager:
@@ -232,7 +232,7 @@ async def upload_file(file: UploadFile = File(...)):
             return JSONResponse({
                 "results": results,
                 "warning": "Some questions may have incorrect bubble detection. Please verify the results.",
-                "combined_image": "/static/combined_questions.jpg"
+                "combined_image": "/tmp/output/temp/combined_questions.jpg"
             })
         
         # After processing, combine all images
@@ -245,30 +245,19 @@ async def upload_file(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail=f"Error combining images: {str(e)}")
         
         # Check if combined image exists
-        combined_image_path = STATIC_DIR / "combined_questions.jpg"
+        combined_image_path = TEMP_DIR / "combined_questions.jpg"
         if not combined_image_path.exists():
             logger.error(f"Combined image not found at: {combined_image_path}")
-            return JSONResponse({
-                "results": results,
-                "error": "Failed to generate combined image"
-            })
+            raise HTTPException(status_code=500, detail="Combined image not found")
         
-        logger.info("Processing completed successfully")
-        
-        # Prepare response data
-        response_data = {
+        # Return the results and the path to the combined image
+        return JSONResponse({
             "results": results,
-            "combined_image": "/static/combined_questions.jpg"
-        }
-        
-        return JSONResponse(response_data)
-        
-    except HTTPException as he:
-        logger.error(f"HTTP Exception: {str(he)}")
-        raise he
+            "combined_image": "/tmp/output/temp/combined_questions.jpg"
+        })
     except Exception as e:
-        logger.error(f"Unexpected error in upload_file: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
 @app.get("/evaluate", response_class=HTMLResponse)
 async def evaluation_page(request: Request):
@@ -449,7 +438,7 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
                 "score": score,
                 "questions_with_multiple_answers": sum(1 for r in evaluation_results if r.get('has_multiple_answers', False))
             },
-            "combined_image": "/output/combined_questions.jpg"
+            "combined_image": "/tmp/output/temp/combined_questions.jpg"
         }
         
         # Save JSON response to file
@@ -472,10 +461,11 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
 
 @app.get("/output/combined_questions.jpg")
 def get_combined_image():
-    """Serve the combined questions image from the temp directory"""
-    if not COMBINED_IMAGE_PATH.exists():
+    """Serve the combined image"""
+    combined_image_path = TEMP_DIR / "combined_questions.jpg"
+    if not combined_image_path.exists():
         raise HTTPException(status_code=404, detail="Combined image not found")
-    return FileResponse(str(COMBINED_IMAGE_PATH), media_type="image/jpeg")
+    return FileResponse(combined_image_path)
 
 @app.post("/upload_base64")
 async def upload_base64_image(image_data: Base64Image):
@@ -545,7 +535,7 @@ async def upload_base64_image(image_data: Base64Image):
             raise HTTPException(status_code=500, detail=f"Error combining images: {str(e)}")
         
         # Check if combined image exists
-        combined_image_path = STATIC_DIR / "combined_questions.jpg"
+        combined_image_path = TEMP_DIR / "combined_questions.jpg"
         if not combined_image_path.exists():
             logger.error(f"Combined image not found at: {combined_image_path}")
             return JSONResponse({
@@ -558,7 +548,7 @@ async def upload_base64_image(image_data: Base64Image):
         # Prepare response data with timestamp to prevent caching
         response_data = {
             "results": results,
-            "combined_image": f"/static/combined_questions.jpg?t={timestamp}",
+            "combined_image": f"/tmp/output/temp/combined_questions.jpg?t={timestamp}",
             "timestamp": timestamp
         }
         
