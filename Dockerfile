@@ -1,5 +1,5 @@
-# Use Python 3.11 slim image as base
-FROM python:3.11-slim
+# Use Python 3.12 slim image as base
+FROM python:3.12-slim
 
 # Set working directory
 WORKDIR /app
@@ -27,10 +27,10 @@ COPY requirements.txt .
 
 # Install Python dependencies in stages
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir numpy==1.24.3 && \
-    pip install --no-cache-dir torch==2.1.2+cpu torchaudio==2.1.2+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html && \
-    pip install --no-cache-dir onnxruntime==1.16.3 && \
-    pip install --no-cache-dir fastapi==0.109.2 uvicorn==0.27.1 python-multipart==0.0.6 && \
+    pip install --no-cache-dir numpy==1.26.4 && \
+    pip install --no-cache-dir torch==2.2.1+cpu torchvision==0.17.1+cpu torchaudio==2.2.1+cpu -f https://download.pytorch.org/whl/cpu/torch_stable.html && \
+    pip install --no-cache-dir onnxruntime==1.17.0 && \
+    pip install --no-cache-dir fastapi==0.110.0 uvicorn==0.27.1 python-multipart==0.0.9 && \
     pip install --no-cache-dir Pillow==10.2.0 && \
     pip install --no-cache-dir opencv-python-headless==4.9.0.80 && \
     pip install --no-cache-dir -r requirements.txt
@@ -52,6 +52,7 @@ USER appuser
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
 ENV LOG_LEVEL=DEBUG
+ENV PYTHONPATH=/app
 
 # Expose the port
 EXPOSE 8080
