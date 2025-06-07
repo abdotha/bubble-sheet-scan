@@ -52,8 +52,8 @@ document.addEventListener('DOMContentLoaded', function () {
             } else {
                 let html = '';
                 if (data.results) {
-                    // Build a table similar to evaluation.js
-                    html += `<table class='results-table'><thead><tr><th>Q#</th><th>Detected Answer(s)</th><th>Bubbles Detected</th><th>Fill Ratios</th></tr></thead><tbody>`;
+                    // Build a table with additional columns for Bubble Area and Bubble Circularity
+                    html += `<table class='results-table'><thead><tr><th>Q#</th><th>Detected Answer(s)</th><th>Bubbles Detected</th><th>Fill Ratios</th><th>Bubble Area</th><th>Bubble Circularity</th></tr></thead><tbody>`;
                     Object.keys(data.results).sort((a, b) => {
                         // Sort by question number
                         const numA = parseInt(a.replace('question_', ''));
@@ -61,7 +61,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         return numA - numB;
                     }).forEach(key => {
                         const r = data.results[key];
-                        html += `<tr><td>${key.replace('question_', '')}</td><td>${Array.isArray(r.answer) ? r.answer.join(', ') : (r.answer ?? 'No Answer')}</td><td>${r.bubbles_detected ?? ''}</td><td>${Array.isArray(r.fill_ratios) ? r.fill_ratios.map(x => x.toFixed(2)).join(', ') : ''}</td></tr>`;
+                        html += `<tr><td>${key.replace('question_', '')}</td><td>${Array.isArray(r.answer) ? r.answer.join(', ') : (r.answer ?? 'No Answer')}</td><td>${r.bubbles_detected ?? ''}</td><td>${Array.isArray(r.fill_ratios) ? r.fill_ratios.map(x => x.toFixed(2)).join(', ') : ''}</td><td>${Array.isArray(r.bubble_area) ? r.bubble_area.map(x => x.toFixed(2)).join(', ') : (r.bubble_area ?? '')}</td><td>${Array.isArray(r.bubble_circularity) ? r.bubble_circularity.map(x => x.toFixed(2)).join(', ') : (r.bubble_circularity ?? '')}</td></tr>`;
                     });
                     html += `</tbody></table>`;
                 }

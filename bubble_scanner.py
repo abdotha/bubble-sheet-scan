@@ -132,6 +132,8 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
                 'question_number': global_question_num,
                 'answer': answer,  # Will be None if no answer or invalid
                 'fill_ratios': [b['fill_ratio'] for b in bubbles],
+                'bubble_area': [b['area'] for b in bubbles],
+                'bubble_circularity': [b['circularity'] for b in bubbles],
                 'bubbles_detected': len(bubbles),
                 'model_answer': model_answer
             }
@@ -153,6 +155,8 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
         results_dict[question_key] = {
             'answer': q['answer'],
             'fill_ratios': q['fill_ratios'],
+            'bubble_area': q.get('bubble_area', []),
+            'bubble_circularity': q.get('bubble_circularity', []),
             'bubbles_detected': q['bubbles_detected'],
             'model_answer': q['model_answer']
         }
