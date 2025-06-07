@@ -10,8 +10,8 @@ class BubbleDetector:
         self.max_area = int(np.pi * (self.max_diameter/2)**2)
         
         # Relaxed shape parameters
-        self.min_circularity = 0.24  # Reduced from 0.5 to allow less circular shapes
-        self.max_aspect_ratio = 2.0  # Increased from 1.5
+        self.min_circularity = 0.20  # Reduced from 0.5 to allow less circular shapes
+        self.max_aspect_ratio = 2.5  # Increased from 1.5
         
         # Adjusted selection parameters
         self.dark_threshold = 120
