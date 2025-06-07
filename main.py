@@ -238,7 +238,9 @@ async def upload_file(file: UploadFile = File(...)):
         # After processing, combine all images
         logger.info("Starting image combination")
         try:
-            combine_images()
+            if not combine_images():
+                logger.error("Failed to combine images")
+                raise HTTPException(status_code=500, detail="Failed to generate combined image")
             logger.info("Image combination completed")
         except Exception as e:
             logger.error(f"Error combining images: {str(e)}")
