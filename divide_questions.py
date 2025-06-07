@@ -2,6 +2,11 @@ import os
 import cv2
 import numpy as np
 from pathlib import Path
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def create_cut_visualization(img, num_questions=15, overlap=2):
     """
@@ -49,41 +54,56 @@ def divide_image_into_questions(img, output_base_dir, overlap=5):
         output_base_dir: Base directory for output
         overlap: Number of pixels to overlap between sections
     """
-    num_questions = 15
+    try:
+        num_questions = 15
 
-    # Get image dimensions
-    height, width = img.shape[:2]
-    
-    # Calculate the height of each question section
-    section_height = height // num_questions
-    
-    # Create visualization of cuts
-    vis_img = create_cut_visualization(img, num_questions, overlap)
-    
-    # Create visualization directory
-    vis_dir = os.path.join(output_base_dir, "visualizations")
-    os.makedirs(vis_dir, exist_ok=True)
-    
-    # Save visualization
-    vis_path = os.path.join(vis_dir, "cut_lines.jpg")
-    cv2.imwrite(vis_path, vis_img)
-    
-    # Create questions directory
-    questions_dir = os.path.join(output_base_dir, "questions")
-    os.makedirs(questions_dir, exist_ok=True)
-    
-    # Process each question section
-    for i in range(num_questions):
-        # Calculate the start and end y-coordinates for this section with overlap
-        start_y = max(0, i * section_height - overlap)
-        end_y = min(height, (i + 1) * section_height + overlap)
+        # Get image dimensions
+        height, width = img.shape[:2]
+        logger.debug(f"Image dimensions: {width}x{height}")
         
-        # Extract the section
-        section = img[start_y:end_y, :]
+        # Calculate the height of each question section
+        section_height = height // num_questions
         
-        # Save the section directly without any processing
-        output_path = os.path.join(questions_dir, f"question_{i+1}.jpg")
-        cv2.imwrite(output_path, section)
+        # Create visualization of cuts
+        vis_img = create_cut_visualization(img, num_questions, overlap)
+        
+        # Create visualization directory
+        vis_dir = os.path.join(output_base_dir, "visualizations")
+        os.makedirs(vis_dir, exist_ok=True)
+        
+        # Save visualization
+        vis_path = os.path.join(vis_dir, "cut_lines.jpg")
+        cv2.imwrite(vis_path, vis_img)
+        logger.debug(f"Saved visualization to: {vis_path}")
+        
+        # Create questions directory
+        questions_dir = os.path.join(output_base_dir, "questions")
+        os.makedirs(questions_dir, exist_ok=True)
+        logger.debug(f"Created questions directory: {questions_dir}")
+        
+        # Process each question section
+        for i in range(num_questions):
+            # Calculate the start and end y-coordinates for this section with overlap
+            start_y = max(0, i * section_height - overlap)
+            end_y = min(height, (i + 1) * section_height + overlap)
+            
+            # Extract the section
+            section = img[start_y:end_y, :]
+            
+            # Save the section directly without any processing
+            output_path = os.path.join(questions_dir, f"question_{i+1}.jpg")
+            success = cv2.imwrite(output_path, section)
+            if not success:
+                logger.error(f"Failed to save question image: {output_path}")
+            else:
+                logger.debug(f"Saved question image: {output_path}")
+        
+        logger.info(f"Successfully divided image into {num_questions} questions")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error dividing image into questions: {str(e)}")
+        return False
 
 def process_all_parts(base_dir):
     """
@@ -91,24 +111,35 @@ def process_all_parts(base_dir):
     Args:
         base_dir: Base directory containing the image folders
     """
-    # Get all folders in the base directory
-    folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
-    
-    for folder in folders:
-        folder_path = os.path.join(base_dir, folder)
+    try:
+        # Get all folders in the base directory
+        folders = [f for f in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, f))]
         
-        # Create output directory for this image
-        output_dir = os.path.join(base_dir, "processed", folder)
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # Process each part (left, middle, right)
-        for part in ['left', 'middle', 'right']:
-            part_path = os.path.join(folder_path, f"{part}.jpg")
+        for folder in folders:
+            folder_path = os.path.join(base_dir, folder)
             
-            if os.path.exists(part_path):
-                # Divide the image into questions
-                divide_image_into_questions(part_path, output_dir)
-                print(f"Processed {part} part of {folder}")
+            # Create output directory for this image
+            output_dir = os.path.join(base_dir, "processed", folder)
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Process each part (left, middle, right)
+            for part in ['left', 'middle', 'right']:
+                part_path = os.path.join(folder_path, f"{part}.jpg")
+                
+                if os.path.exists(part_path):
+                    # Divide the image into questions
+                    if divide_image_into_questions(part_path, output_dir):
+                        logger.info(f"Processed {part} part of {folder}")
+                    else:
+                        logger.error(f"Failed to process {part} part of {folder}")
+                else:
+                    logger.warning(f"Part not found: {part_path}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error processing parts: {str(e)}")
+        return False
 
 if __name__ == "__main__":
     # Specify the base directory containing the image folders
