@@ -1,154 +1,82 @@
-// File input handling
-const fileInput = document.getElementById('fileInput');
-const selectedFile = document.getElementById('selectedFile');
-const dropZone = document.getElementById('dropZone');
-const errorAlert = document.getElementById('errorAlert');
+// index.js - Handles file upload, preview, and result display for index.html
 
-fileInput.addEventListener('change', function(e) {
-    if (this.files.length > 0) {
-        selectedFile.textContent = `Selected file: ${this.files[0].name}`;
-    } else {
-        selectedFile.textContent = '';
-    }
-});
-
-// Drag and drop handling
-['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, preventDefaults, false);
-});
-
-function preventDefaults(e) {
-    e.preventDefault();
-    e.stopPropagation();
-}
-
-['dragenter', 'dragover'].forEach(eventName => {
-    dropZone.addEventListener(eventName, highlight, false);
-});
-
-['dragleave', 'drop'].forEach(eventName => {
-    dropZone.addEventListener(eventName, unhighlight, false);
-});
-
-function highlight(e) {
-    dropZone.classList.add('dragover');
-}
-
-function unhighlight(e) {
-    dropZone.classList.remove('dragover');
-}
-
-dropZone.addEventListener('drop', handleDrop, false);
-
-function handleDrop(e) {
-    const dt = e.dataTransfer;
-    const files = dt.files;
-    fileInput.files = files;
-    if (files.length > 0) {
-        selectedFile.textContent = `Selected file: ${files[0].name}`;
-    }
-}
-
-// Form submission
-document.getElementById('uploadForm').onsubmit = async (e) => {
-    e.preventDefault();
+document.addEventListener('DOMContentLoaded', function () {
+    const uploadForm = document.getElementById('uploadForm');
+    const fileInput = document.getElementById('fileInput');
+    const selectedFile = document.getElementById('selectedFile');
+    const errorAlert = document.getElementById('errorAlert');
     const loading = document.getElementById('loading');
     const results = document.getElementById('results');
     const preview = document.getElementById('preview');
 
-    if (!fileInput.files.length) return;
-
-    // Reset UI
-    loading.style.display = 'block';
-    results.innerHTML = '';
-    preview.style.display = 'none';
-    errorAlert.style.display = 'none';
-
-    try {
-        // Convert file to base64
-        const file = fileInput.files[0];
-        const reader = new FileReader();
-        
-        const base64Promise = new Promise((resolve, reject) => {
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = reject;
-        });
-        
-        reader.readAsDataURL(file);
-        const base64Image = await base64Promise;
-
-        // Send base64 image to server
-        const response = await fetch('/upload_base64', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                image: base64Image
-            })
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Failed to process image');
+    fileInput.addEventListener('change', function () {
+        if (fileInput.files.length > 0) {
+            selectedFile.textContent = fileInput.files[0].name;
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+            };
+            reader.readAsDataURL(fileInput.files[0]);
+        } else {
+            selectedFile.textContent = '';
+            preview.style.display = 'none';
         }
-        
-        const data = await response.json();
-        
-        if (data.error) {
-            showError(data.error);
+    });
+
+    uploadForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        errorAlert.style.display = 'none';
+        loading.style.display = 'block';
+        results.innerHTML = '';
+
+        const formData = new FormData();
+        if (fileInput.files.length === 0) {
+            errorAlert.textContent = 'Please select a file.';
+            errorAlert.style.display = 'block';
+            loading.style.display = 'none';
             return;
         }
+        formData.append('file', fileInput.files[0]);
 
-        // Display warning if present
-        if (data.warning) {
-            showError(data.warning);
-        }
-
-        // Display results in a table
-        let resultsHtml = '<h2>Processing Results</h2>';
-        resultsHtml += '<div class="table-responsive"><table class="table table-striped results-table">';
-        resultsHtml += '<thead><tr><th>Question</th><th>Answer</th><th>Fill Ratios</th><th>Bubbles Detected</th></tr></thead><tbody>';
-        
-        // Sort the results by question number
-        const sortedResults = Object.entries(data.results).sort((a, b) => {
-            const numA = parseInt(a[0].replace('question_', ''));
-            const numB = parseInt(b[0].replace('question_', ''));
-            return numA - numB;
+        fetch('/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            loading.style.display = 'none';
+            if (data.error) {
+                errorAlert.textContent = data.error;
+                errorAlert.style.display = 'block';
+            } else {
+                let html = '';
+                if (data.results) {
+                    // Build a table similar to evaluation.js
+                    html += `<table class='results-table'><thead><tr><th>Q#</th><th>Detected Answer(s)</th><th>Bubbles Detected</th><th>Fill Ratios</th></tr></thead><tbody>`;
+                    Object.keys(data.results).sort((a, b) => {
+                        // Sort by question number
+                        const numA = parseInt(a.replace('question_', ''));
+                        const numB = parseInt(b.replace('question_', ''));
+                        return numA - numB;
+                    }).forEach(key => {
+                        const r = data.results[key];
+                        html += `<tr><td>${key.replace('question_', '')}</td><td>${Array.isArray(r.answer) ? r.answer.join(', ') : (r.answer ?? 'No Answer')}</td><td>${r.bubbles_detected ?? ''}</td><td>${Array.isArray(r.fill_ratios) ? r.fill_ratios.map(x => x.toFixed(2)).join(', ') : ''}</td></tr>`;
+                    });
+                    html += `</tbody></table>`;
+                }
+                if (data.combined_image) {
+                    // Prefer /output/combined_questions.jpg endpoint for always-fresh image
+                    const imgUrl = '/output/combined_questions.jpg?t=' + new Date().getTime();
+                    html += `<div class='mt-4'><img src="${imgUrl}" class="img-fluid" alt="Combined Results"></div>`;
+                }
+                results.innerHTML = html;
+            }
+        })
+        .catch(err => {
+            loading.style.display = 'none';
+            errorAlert.textContent = 'An error occurred while processing the image.';
+            errorAlert.style.display = 'block';
         });
-        
-        for (const [question, details] of sortedResults) {
-            const questionNum = parseInt(question.replace('question_', ''));
-            const answer = details.answer ? details.answer.join(', ') : 'No Answer';
-            const fillRatios = details.fill_ratios.map(r => r.toFixed(2)).join(', ');
-            
-            resultsHtml += `<tr>
-                <td>${questionNum}</td>
-                <td>${answer}</td>
-                <td>${fillRatios}</td>
-                <td>${details.bubbles_detected}</td>
-            </tr>`;
-        }
-        
-        resultsHtml += '</tbody></table></div>';
-        results.innerHTML = resultsHtml;
-        
-        // Display combined image with timestamp to prevent caching
-        if (data.combined_image) {
-            // Clear any existing image
-            preview.src = '';
-            // Force browser to reload the image
-            preview.src = data.combined_image;
-            preview.style.display = 'block';
-        }
-    } catch (error) {
-        showError(error.message);
-    } finally {
-        loading.style.display = 'none';
-    }
-};
-
-function showError(message) {
-    errorAlert.textContent = message;
-    errorAlert.style.display = 'block';
-} 
+    });
+});

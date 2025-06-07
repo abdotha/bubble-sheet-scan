@@ -1,133 +1,124 @@
-let modelAnswers = null;
-let numberOfQuestions = null;
+// evaluation.js - Handles model answers upload, file upload, and evaluation result display for evaluation.html
 
-// Model answers form handling
-document.getElementById('modelAnswersForm').onsubmit = async (e) => {
-    e.preventDefault();
-    const answersInput = document.getElementById('modelAnswers').value;
-    numberOfQuestions = parseInt(document.getElementById('numberOfQuestions').value);
-    
-    try {
-        const answers = answersInput.split(',').map(a => parseInt(a.trim()));
-        if (answers.length !== numberOfQuestions) {
-            throw new Error('Number of answers must match the number of questions');
-        }
-
-        const response = await fetch('/upload_model_answers', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                number_of_questions: numberOfQuestions,
-                answers: answers
-            })
-        });
-
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to upload model answers');
-        }
-
-        showError('Model answers saved successfully!', 'success');
-    } catch (error) {
-        showError(error.message);
-    }
-};
-
-// File input handling
-const fileInput = document.getElementById('fileInput');
-const selectedFile = document.getElementById('selectedFile');
-const errorAlert = document.getElementById('errorAlert');
-
-fileInput.addEventListener('change', function(e) {
-    if (this.files.length > 0) {
-        selectedFile.textContent = `Selected file: ${this.files[0].name}`;
-    } else {
-        selectedFile.textContent = '';
-    }
-});
-
-// Form submission
-document.getElementById('uploadForm').onsubmit = async (e) => {
-    e.preventDefault();
+document.addEventListener('DOMContentLoaded', function () {
+    const modelAnswersForm = document.getElementById('modelAnswersForm');
+    const numberOfQuestions = document.getElementById('numberOfQuestions');
+    const modelAnswers = document.getElementById('modelAnswers');
+    const uploadForm = document.getElementById('uploadForm');
+    const fileInput = document.getElementById('fileInput');
+    const selectedFile = document.getElementById('selectedFile');
+    const errorAlert = document.getElementById('errorAlert');
     const loading = document.getElementById('loading');
     const results = document.getElementById('results');
     const preview = document.getElementById('preview');
 
-    if (!fileInput.files.length) {
-        showError('Please select a file');
-        return;
-    }
+    // Handle model answers form
+    modelAnswersForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        errorAlert.style.display = 'none';
+        loading.style.display = 'block';
+        results.innerHTML = '';
 
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-
-    // Reset UI
-    loading.style.display = 'block';
-    results.innerHTML = '';
-    preview.style.display = 'none';
-    errorAlert.style.display = 'none';
-
-    try {
-        const response = await fetch('/evaluate', {
-            method: 'POST',
-            body: formData
-        });
-        
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Failed to process image');
-        }
-        
-        const data = await response.json();
-        
-        if (data.error) {
-            showError(data.error);
+        const numQuestions = parseInt(numberOfQuestions.value, 10);
+        const answers = modelAnswers.value.split(',').map(a => parseInt(a.trim(), 10));
+        if (answers.length !== numQuestions || answers.some(isNaN)) {
+            loading.style.display = 'none';
+            errorAlert.textContent = 'Please enter the correct number of answers (comma-separated, numbers only).';
+            errorAlert.style.display = 'block';
             return;
         }
 
-        // Display evaluation results
-        let resultsHtml = '<h2>Evaluation Results</h2>';
-        resultsHtml += '<div class="table-responsive"><table class="table table-striped results-table">';
-        resultsHtml += '<thead><tr><th>Question</th><th>Student Answer</th><th>Correct Answer</th><th>Status</th></tr></thead><tbody>';
-        
-        data.evaluation_results.forEach(result => {
-            resultsHtml += `<tr class="${result.is_correct ? 'table-success' : 'table-danger'}">
-                <td>${result.question}</td>
-                <td>${result.student_answer_display}</td>
-                <td>${result.correct_answer}</td>
-                <td>${result.is_correct ? '✓' : '✗'}</td>
-            </tr>`;
+        fetch('/upload_model_answers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ number_of_questions: numQuestions, answers: answers })
+        })
+        .then(response => response.json())
+        .then(data => {
+            loading.style.display = 'none';
+            if (data.error || data.detail) {
+                errorAlert.textContent = data.error || data.detail;
+                errorAlert.style.display = 'block';
+            } else {
+                results.innerHTML = `<div class='success-message'>Model answers saved successfully.</div>`;
+            }
+        })
+        .catch(err => {
+            loading.style.display = 'none';
+            errorAlert.textContent = 'An error occurred while saving model answers.';
+            errorAlert.style.display = 'block';
         });
-        
-        resultsHtml += '</tbody></table></div>';
-        
-        // Add summary
-        resultsHtml += `
-            <div class="alert alert-info mt-3">
-                <h4>Summary</h4>
-                <p>Correct Answers: ${data.summary.correct_answers} out of ${data.summary.total_questions}</p>
-                <p>Score: ${data.summary.score.toFixed(2)}%</p>
-            </div>
-        `;
-        
-        results.innerHTML = resultsHtml;
-        
-        // Display combined image
-        if (data.combined_image) {
-            preview.src = data.combined_image + '?t=' + new Date().getTime();
-            preview.style.display = 'block';
-        }
-    } catch (error) {
-        showError(error.message);
-    } finally {
-        loading.style.display = 'none';
-    }
-};
+    });
 
-function showError(message, type = 'danger') {
-    errorAlert.className = `alert alert-${type}`;
-    errorAlert.textContent = message;
-    errorAlert.style.display = 'block';
-} 
+    // Handle file input preview
+    fileInput.addEventListener('change', function () {
+        if (fileInput.files.length > 0) {
+            selectedFile.textContent = fileInput.files[0].name;
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                preview.src = e.target.result;
+                preview.style.display = 'block';
+            };
+            reader.readAsDataURL(fileInput.files[0]);
+        } else {
+            selectedFile.textContent = '';
+            preview.style.display = 'none';
+        }
+    });
+
+    // Handle bubble sheet upload for evaluation
+    uploadForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        errorAlert.style.display = 'none';
+        loading.style.display = 'block';
+        results.innerHTML = '';
+
+        const formData = new FormData();
+        if (fileInput.files.length === 0) {
+            errorAlert.textContent = 'Please select a file.';
+            errorAlert.style.display = 'block';
+            loading.style.display = 'none';
+            return;
+        }
+        formData.append('file', fileInput.files[0]);
+
+        fetch('/evaluate', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            loading.style.display = 'none';
+            if (data.error || data.detail) {
+                errorAlert.textContent = data.error || data.detail;
+                errorAlert.style.display = 'block';
+            } else if (data.evaluation_results) {
+                let html = `<div class='summary-section'><div class='summary-title'>Evaluation Summary</div>`;
+                html += `<div class='summary-grid'>`;
+                html += `<div class='summary-item total'><h3>Total Questions</h3><div class='value'>${data.summary.total_questions}</div></div>`;
+                html += `<div class='summary-item correct'><h3>Correct</h3><div class='value'>${data.summary.correct_answers}</div></div>`;
+                html += `<div class='summary-item incorrect'><h3>Incorrect</h3><div class='value'>${data.summary.total_questions - data.summary.correct_answers}</div></div>`;
+                html += `<div class='summary-item percentage'><h3>Score</h3><div class='value'>${data.summary.score.toFixed(2)}%</div></div>`;
+                html += `</div></div>`;
+                html += `<table class='results-table'><thead><tr><th>Q#</th><th>Your Answer</th><th>Correct</th><th>Status</th></tr></thead><tbody>`;
+                data.evaluation_results.forEach(r => {
+                    let status = r.is_correct ? 'Correct' : (r.has_multiple_answers ? 'Multiple' : 'Incorrect');
+                    let rowClass = r.is_correct ? 'correct' : (r.has_multiple_answers ? 'warning' : 'incorrect');
+                    html += `<tr class='${rowClass}'><td>${r.question}</td><td>${r.student_answer_display}</td><td>${r.correct_answer}</td><td>${status}</td></tr>`;
+                });
+                html += `</tbody></table>`;
+                if (data.combined_image) {
+                    // Always use /output/combined_questions.jpg with cache-busting for latest image
+                    const imgUrl = '/output/combined_questions.jpg?t=' + new Date().getTime();
+                    html += `<div class='mt-4'><img src="${imgUrl}" class="img-fluid" alt="Combined Results"></div>`;
+                }
+                results.innerHTML = html;
+            }
+        })
+        .catch(err => {
+            loading.style.display = 'none';
+            errorAlert.textContent = 'An error occurred while evaluating the image.';
+            errorAlert.style.display = 'block';
+        });
+    });
+});

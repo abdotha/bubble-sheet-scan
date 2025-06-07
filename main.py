@@ -15,13 +15,6 @@ from pathlib import Path
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import glob
-import base64
-from io import BytesIO
-import numpy as np
-import cv2
-from bubble_scanner import BubbleScanner
-from divide_questions import QuestionDivider
-from bubble_detector import BubbleDetector
 
 # Configure logging
 logging.basicConfig(
@@ -37,8 +30,8 @@ REQUIRED_BUBBLES_PER_QUESTION = 4
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
-OUTPUT_DIR = Path("/tmp") / "output" / "results"
-TEMP_DIR = Path("/tmp") / "output" / "temp"
+OUTPUT_DIR = BASE_DIR / "output" / "results"
+TEMP_DIR = BASE_DIR / "output" / "temp"
 COMBINED_IMAGE_PATH = TEMP_DIR / "combined_questions.jpg"
 
 class FileManager:
@@ -83,38 +76,34 @@ class FileManager:
             logger.error(f"Error cleaning temp directory: {e}")
 
 class BubbleSheetValidator:
-    def __init__(self):
-        self.required_bubbles = 4  # Each question should have exactly 4 bubbles
-        
-    def validate_results(self, results: dict) -> tuple[bool, str]:
-        """Validate the results and return (is_valid, error_message)"""
-        logger.info("Starting validation of results")
-        
-        # Check each question
-        for key, value in results.items():
-            if not key.startswith('question_'):
+    """Handles validation of bubble sheet results"""
+    
+    @staticmethod
+    def validate_results(results: Dict[str, Any]) -> bool:
+        """
+        Validate that all questions have exactly 4 detected bubbles
+        Returns True if valid, False otherwise
+        """
+        if not results:
+            return False
+            
+        # Check if results is a dictionary
+        if not isinstance(results, dict):
+            return False
+            
+        # Check each question's data
+        for question_key, data in results.items():
+            if not question_key.startswith('question_'):
                 continue
                 
-            question_num = key.split('_')[1]
-            bubbles_detected = value.get('bubbles_detected', 0)
-            
-            logger.info(f"Validating question {question_num}: {bubbles_detected} bubbles detected")
-            
-            # First check if we have the correct number of bubbles
-            if bubbles_detected != self.required_bubbles:
-                error_msg = f"Question {question_num} has {bubbles_detected} bubbles detected, but {self.required_bubbles} are required"
-                logger.error(error_msg)
-                return False, error_msg
-            
-            # Then check if there's a clear answer
-            answer = value.get('answer')
-            if not answer:
-                error_msg = f"Question {question_num} has no clear answer"
-                logger.error(error_msg)
-                return False, error_msg
+            # Check if bubbles_detected exists and equals 4
+            if not isinstance(data, dict) or 'bubbles_detected' not in data:
+                return False
+            if data['bubbles_detected'] != REQUIRED_BUBBLES_PER_QUESTION:
+                logger.warning(f"Invalid bubble count for {question_key}: {data['bubbles_detected']}")
+                return False
                 
-        logger.info("Validation completed successfully")
-        return True, ""
+        return True
 
 class ModelAnswers(BaseModel):
     number_of_questions: int
@@ -122,9 +111,6 @@ class ModelAnswers(BaseModel):
 
 # Define model answers file path
 MODEL_ANSWERS_FILE = OUTPUT_DIR / "model_answers.json"
-
-class Base64Image(BaseModel):
-    image: str  # base64 encoded image string
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -168,93 +154,67 @@ async def home(request: Request):
 async def upload_file(file: UploadFile = File(...)):
     """Upload and process a bubble sheet image"""
     try:
-        logger.info(f"Received file upload: {file.filename}")
-        
-        # Verify file type
-        if not file.content_type.startswith('image/'):
-            logger.error(f"Invalid file type: {file.content_type}")
-            raise HTTPException(status_code=400, detail="Only image files are allowed")
-        
         # Clean up directories before processing
-        try:
-            FileManager.cleanup_output_folder()
-            FileManager.cleanup_static_folder()
-            logger.info("Directories cleaned successfully")
-        except Exception as e:
-            logger.error(f"Error cleaning directories: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error preparing directories: {str(e)}")
+        FileManager.cleanup_output_folder()
+        FileManager.cleanup_static_folder()
         
         # Generate unique filename with timestamp
         timestamp = int(time.time())
         filename = f"bubble_sheet_{timestamp}.jpg"
         file_path = OUTPUT_DIR / filename
         
-        logger.info(f"Attempting to save file to: {file_path}")
-        logger.info(f"Directory exists: {OUTPUT_DIR.exists()}")
-        logger.info(f"Directory permissions: {oct(OUTPUT_DIR.stat().st_mode)[-3:]}")
-        
         # Save the uploaded file
-        try:
-            with open(file_path, "wb") as buffer:
-                content = await file.read()
-                if not content:
-                    raise ValueError("Empty file received")
-                buffer.write(content)
-            logger.info("File saved successfully")
-        except Exception as e:
-            logger.error(f"Error saving file: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
         
         # Process the image using bubble scanner
-        logger.info("Starting bubble sheet processing")
-        try:
-            results = process_bubble_sheet(str(file_path))
-            logger.info("Bubble sheet processing completed")
-            logger.info(f"Processing results: {json.dumps(results, indent=2)}")
-        except Exception as e:
-            logger.error(f"Error processing bubble sheet: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+        results = process_bubble_sheet(str(file_path))
         
         if results is None:
-            logger.error("Failed to process bubble sheet - results is None")
             raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
         
         # Validate the results
-        validator = BubbleSheetValidator()
-        is_valid, error_message = validator.validate_results(results)
-        if not is_valid:
-            logger.error(f"Invalid bubble sheet detected: {error_message}")
-            return JSONResponse({
-                "results": results,
-                "error": error_message,
-                "combined_image": None
-            })
+        if not BubbleSheetValidator.validate_results(results):
+            logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid bubble sheet detected. Please ensure your image has all bubbles clearly visible and try again."
+            )
         
         # After processing, combine all images
-        logger.info("Starting image combination")
-        try:
-            if not combine_images():
-                logger.error("Failed to combine images")
-                raise HTTPException(status_code=500, detail="Failed to generate combined image")
-            logger.info("Image combination completed")
-        except Exception as e:
-            logger.error(f"Error combining images: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error combining images: {str(e)}")
+        combine_images(output_dir=str(TEMP_DIR))
         
-        # Check if combined image exists
+        # Check if combined image exists in temp
         combined_image_path = TEMP_DIR / "combined_questions.jpg"
         if not combined_image_path.exists():
-            logger.error(f"Combined image not found at: {combined_image_path}")
-            raise HTTPException(status_code=500, detail="Combined image not found")
+            return JSONResponse({
+                "results": results,
+                "error": "Failed to generate combined image"
+            })
         
-        # Return the results and the path to the combined image
-        return JSONResponse({
+        # Prepare response data
+        response_data = {
             "results": results,
-            "combined_image": f"/tmp/output/temp/combined_questions.jpg?t={timestamp}"
-        })
+            "combined_image": "/output/combined_questions.jpg"
+        }
+        
+        # Save JSON response to file
+        json_filename = f"results_{timestamp}.json"
+        json_path = OUTPUT_DIR / json_filename
+        with open(json_path, "w") as f:
+            json.dump(response_data, f, indent=4)
+        
+        return JSONResponse(response_data)
+        
+    except HTTPException as he:
+        # Re-raise HTTP exceptions
+        raise he
     except Exception as e:
-        logger.error(f"Error processing file: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+        logger.error(f"Error processing file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # Clean up output directory after processing
+        FileManager.cleanup_output_folder()
 
 @app.get("/evaluate", response_class=HTMLResponse)
 async def evaluation_page(request: Request):
@@ -327,12 +287,10 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
         
         # Log the results for debugging
-        # logger.info(f"Bubble sheet processing results: {json.dumps(results, indent=2)}")
+        logger.info(f"Bubble sheet processing results: {json.dumps(results, indent=2)}")
         
         # Validate the results
-        validator = BubbleSheetValidator()
-        is_valid, error_message = validator.validate_results(results)
-        if not is_valid:
+        if not BubbleSheetValidator.validate_results(results):
             logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
             raise HTTPException(
                 status_code=400,
@@ -437,7 +395,7 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
                 "score": score,
                 "questions_with_multiple_answers": sum(1 for r in evaluation_results if r.get('has_multiple_answers', False))
             },
-            "combined_image": "/tmp/output/temp/combined_questions.jpg"
+            "combined_image": "/output/combined_questions.jpg"
         }
         
         # Save JSON response to file
@@ -458,104 +416,114 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
         # Clean up output directory after processing
         FileManager.cleanup_output_folder()
 
-@app.get("/tmp/output/temp/combined_questions.jpg")
-async def get_combined_image():
-    """Serve the combined image from /tmp directory"""
-    try:
-        combined_image_path = TEMP_DIR / "combined_questions.jpg"
-        if not combined_image_path.exists():
-            logger.error(f"Combined image not found at: {combined_image_path}")
-            raise HTTPException(status_code=404, detail="Combined image not found")
-        
-        return FileResponse(
-            combined_image_path,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+@app.post("/grade")
+async def grade_bubble_sheet(file: UploadFile = File(...)):
+    """
+    Endpoint to grade a bubble sheet and return:
+    - Processed/graded image (base64, with green/red circles and score)
+    - JSON with student answers (0-3 or null)
+    - Student score
+    """
+    import cv2
+    import base64
+    from io import BytesIO
+    from PIL import Image, ImageDraw, ImageFont
+
+    # Check if model answers file exists
+    if not MODEL_ANSWERS_FILE.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="No model answers found. Please upload model answers first using /upload_model_answers endpoint."
         )
-    except Exception as e:
-        logger.error(f"Error serving combined image: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error serving combined image: {str(e)}")
+    # Load model answers
+    with open(MODEL_ANSWERS_FILE, "r") as f:
+        model_answers = ModelAnswers(**json.load(f))
 
-@app.post("/upload_base64")
-async def upload_base64(image_data: Base64Image):
-    try:
-        logger.info("Received base64 image upload request")
-        
-        # Decode base64 image
-        image_bytes = base64.b64decode(image_data.image.split(',')[1])
-        nparr = np.frombuffer(image_bytes, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        
-        if img is None:
-            logger.error("Failed to decode base64 image")
-            raise HTTPException(status_code=400, detail="Invalid image data")
-            
-        logger.info("Successfully decoded base64 image")
-        
-        # Process the image
-        results = process_image(img)
-        
-        # Validate results
-        validator = BubbleSheetValidator()
-        is_valid, error_message = validator.validate_results(results)
-        
-        if not is_valid:
-            logger.error(f"Validation failed: {error_message}")
-            raise HTTPException(status_code=400, detail=error_message)
-            
-        # Generate combined image
-        combined_image_path = os.path.join(TEMP_DIR, "combined_questions.jpg")
-        generate_combined_image(results, combined_image_path)
-        
-        # Add timestamp to prevent caching
-        timestamp = int(time.time())
-        combined_image_url = f"/tmp/output/temp/combined_questions.jpg?t={timestamp}"
-        
-        logger.info("Successfully processed image and generated combined view")
-        
-        return {
-            "results": results,
-            "combined_image": combined_image_url,
-            "timestamp": timestamp
-        }
-        
-    except Exception as e:
-        logger.error(f"Error processing base64 image: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # Save uploaded file to temp
+    FileManager.cleanup_output_folder()
+    FileManager.cleanup_static_folder()
+    timestamp = int(time.time())
+    filename = f"bubble_sheet_{timestamp}.jpg"
+    file_path = OUTPUT_DIR / filename
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-def process_image(img: np.ndarray) -> Dict[str, Any]:
-    """
-    Process a bubble sheet image and return the results
-    Args:
-        img: numpy array containing the image data
-    Returns:
-        Dictionary containing processing results
-    """
+    # Process the image using bubble scanner
+    results = process_bubble_sheet(str(file_path), model_answers=model_answers.answers)
+    if results is None:
+        raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
+
+    # Prepare student answers and grading
+    student_answers = []
+    correct_count = 0
+    for i in range(model_answers.number_of_questions):
+        question_key = f"question_{i+1}"
+        qdata = results.get(question_key, {})
+        ans = qdata.get('answer')
+        if isinstance(ans, list) and len(ans) == 1:
+            student_answers.append(ans[0])
+        elif isinstance(ans, list) and len(ans) == 0:
+            student_answers.append(None)
+        elif isinstance(ans, list):
+            student_answers.append(ans[0])  # If multiple, take first
+        else:
+            student_answers.append(ans if ans is not None else None)
+        if student_answers[-1] == model_answers.answers[i]:
+            correct_count += 1
+
+    # Draw on the combined image (from temp)
+    combined_img_path = TEMP_DIR / "combined_questions.jpg"
+    if not combined_img_path.exists():
+        combine_images(output_dir=str(TEMP_DIR))
+    pil_img = Image.open(str(combined_img_path)).convert("RGB")
+    draw = ImageDraw.Draw(pil_img)
+    # Font for score (fallback to default if not found)
     try:
-        logger.info("Starting image processing")
-        
-        # Create temporary directory for processing
-        temp_dir = Path("/tmp/output/temp")
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save the image temporarily
-        temp_image_path = temp_dir / "temp_input.jpg"
-        cv2.imwrite(str(temp_image_path), img)
-        
-        # Process the image using bubble scanner
-        scanner = BubbleScanner()
-        results = scanner.process(str(temp_image_path))
-        
-        if results is None:
-            logger.error("Failed to process image - results is None")
-            raise Exception("Failed to process image")
-            
-        logger.info("Image processing completed successfully")
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error in process_image: {str(e)}")
-        raise
+        font = ImageFont.truetype("arial.ttf", 48)
+    except:
+        font = ImageFont.load_default()
+    # Draw score
+    score_text = f"Score = {correct_count}/{model_answers.number_of_questions}"
+    draw.text((20, 20), score_text, fill=(0, 51, 153), font=font)
+
+    # Draw circles for each question
+    grid_width, grid_height = 3, 15
+    cell_width = pil_img.width // grid_width
+    cell_height = pil_img.height // grid_height
+    for i, (student, correct) in enumerate(zip(student_answers, model_answers.answers)):
+        # Determine grid position
+        row = i % 15
+        col = 0 if i >= 30 else (1 if i >= 15 else 2)
+        x0 = col * cell_width
+        y0 = row * cell_height
+        # Bubble positions (estimate: 4 bubbles horizontally)
+        for b in range(4):
+            cx = x0 + int(cell_width * (0.15 + 0.2 * b))
+            cy = y0 + int(cell_height * 0.5)
+            r = int(min(cell_width, cell_height) * 0.12)
+            # Draw correct answer (green)
+            if b == correct:
+                draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], outline=(0, 200, 0), width=5)
+            # Draw student wrong answer (red)
+            if student is not None and b == student and student != correct:
+                draw.ellipse([(cx - r, cy - r), (cx + r, cy + r)], outline=(200, 0, 0), width=5)
+    # Encode image to base64
+    buffered = BytesIO()
+    pil_img.save(buffered, format="JPEG")
+    img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+    return {
+        "image_base64": img_base64,
+        "student_answers": student_answers,
+        "correct_answers": correct_count
+    }
+
+@app.get("/output/combined_questions.jpg")
+def get_combined_image():
+    """Serve the combined questions image from the temp directory"""
+    if not COMBINED_IMAGE_PATH.exists():
+        raise HTTPException(status_code=404, detail="Combined image not found")
+    return FileResponse(str(COMBINED_IMAGE_PATH), media_type="image/jpeg")
 
 if __name__ == "__main__":
     import uvicorn

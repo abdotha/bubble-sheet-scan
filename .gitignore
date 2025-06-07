@@ -1,10 +1,11 @@
-# __pycache__/
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
 venv/
 output/
+!static/styles.css
 *.jpg
 *.jpeg
 *.png
