@@ -108,7 +108,7 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
         // Display results in a table
         let resultsHtml = '<h2>Processing Results</h2>';
         resultsHtml += '<div class="table-responsive"><table class="table table-striped results-table">';
-        resultsHtml += '<thead><tr><th>Question</th><th>Answer</th><th>Fill Ratios</th></tr></thead><tbody>';
+        resultsHtml += '<thead><tr><th>Question</th><th>Answer</th><th>Fill Ratios</th><th>Bubbles Detected</th></tr></thead><tbody>';
         
         // Sort the results by question number
         const sortedResults = Object.entries(data.results).sort((a, b) => {
@@ -126,6 +126,7 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
                 <td>${questionNum}</td>
                 <td>${answer}</td>
                 <td>${fillRatios}</td>
+                <td>${details.bubbles_detected}</td>
             </tr>`;
         }
         

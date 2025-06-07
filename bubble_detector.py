@@ -4,14 +4,14 @@ import numpy as np
 class BubbleDetector:
     def __init__(self):
         # More flexible size parameters
-        self.min_diameter = 25  # Increased minimum diameter to 25px
+        self.min_diameter = 20  # Reduced from 25px to 20px
         self.max_diameter = 100  # Maximum size
         self.min_area = int(np.pi * (self.min_diameter/2)**2)  # Calculate area from diameter
         self.max_area = int(np.pi * (self.max_diameter/2)**2)
         
         # Relaxed shape parameters
-        self.min_circularity = 0.29  # Reduced from 0.5 to allow less circular shapes
-        self.max_aspect_ratio = 2.0  # Increased from 1.5
+        self.min_circularity = 0.25  # Reduced from 0.29 to allow less circular shapes
+        self.max_aspect_ratio = 2.5  # Increased from 2.0 to allow more elongated shapes
         
         # Adjusted selection parameters
         self.dark_threshold = 120

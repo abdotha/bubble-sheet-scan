@@ -81,22 +81,23 @@ class BubbleSheetValidator:
     """Handles validation of bubble sheet results"""
     
     @staticmethod
-    def validate_results(results: Dict[str, Any]) -> bool:
+    def validate_results(results: Dict[str, Any]) -> tuple[bool, str]:
         """
         Validate that all questions have exactly 4 detected bubbles
-        Returns True if valid, False otherwise
+        Returns (is_valid, error_message)
         """
         if not results:
             logger.error("Empty results received")
-            return False
+            return False, "No results received from processing"
             
         # Check if results is a dictionary
         if not isinstance(results, dict):
             logger.error(f"Invalid results type: {type(results)}")
-            return False
+            return False, "Invalid results format"
             
         # Track questions with incorrect bubble counts
         invalid_questions = []
+        missing_bubbles = []
         
         # Check each question's data
         for question_key, data in results.items():
@@ -110,17 +111,17 @@ class BubbleSheetValidator:
                 continue
                 
             if data['bubbles_detected'] != REQUIRED_BUBBLES_PER_QUESTION:
-                # Only consider it invalid if there's no clear answer
-                if not data.get('answer'):
-                    logger.warning(f"Invalid bubble count for {question_key}: {data['bubbles_detected']}")
-                    invalid_questions.append(f"{question_key}: {data['bubbles_detected']} bubbles")
+                question_num = question_key.split('_')[1]
+                missing_bubbles.append(f"Question {question_num}: {data['bubbles_detected']} bubbles detected (expected 4)")
+                logger.warning(f"Invalid bubble count for {question_key}: {data['bubbles_detected']}")
                 
-        # If we have invalid questions, log them all
-        if invalid_questions:
-            logger.error(f"Questions with incorrect bubble counts: {', '.join(invalid_questions)}")
-            return False
+        # If we have invalid questions, create a detailed error message
+        if missing_bubbles:
+            error_message = "The following questions have incorrect number of bubbles:\n" + "\n".join(missing_bubbles)
+            logger.error(f"Questions with incorrect bubble counts: {', '.join(missing_bubbles)}")
+            return False, error_message
                 
-        return True
+        return True, ""
 
 class ModelAnswers(BaseModel):
     number_of_questions: int
@@ -226,13 +227,13 @@ async def upload_file(file: UploadFile = File(...)):
             raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
         
         # Validate the results
-        if not BubbleSheetValidator.validate_results(results):
-            logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
-            # Instead of raising an error, return the results with a warning
+        is_valid, error_message = BubbleSheetValidator.validate_results(results)
+        if not is_valid:
+            logger.error(f"Invalid bubble sheet detected: {error_message}")
             return JSONResponse({
                 "results": results,
-                "warning": "Some questions may have incorrect bubble detection. Please verify the results.",
-                "combined_image": "/tmp/output/temp/combined_questions.jpg"
+                "error": error_message,
+                "combined_image": None
             })
         
         # After processing, combine all images
@@ -255,7 +256,7 @@ async def upload_file(file: UploadFile = File(...)):
         # Return the results and the path to the combined image
         return JSONResponse({
             "results": results,
-            "combined_image": "/tmp/output/temp/combined_questions.jpg"
+            "combined_image": f"/tmp/output/temp/combined_questions.jpg?t={timestamp}"
         })
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}")
@@ -461,13 +462,23 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
         # Clean up output directory after processing
         FileManager.cleanup_output_folder()
 
-@app.get("/output/combined_questions.jpg")
-def get_combined_image():
-    """Serve the combined image"""
-    combined_image_path = TEMP_DIR / "combined_questions.jpg"
-    if not combined_image_path.exists():
-        raise HTTPException(status_code=404, detail="Combined image not found")
-    return FileResponse(combined_image_path)
+@app.get("/tmp/output/temp/combined_questions.jpg")
+async def get_combined_image():
+    """Serve the combined image from /tmp directory"""
+    try:
+        combined_image_path = TEMP_DIR / "combined_questions.jpg"
+        if not combined_image_path.exists():
+            logger.error(f"Combined image not found at: {combined_image_path}")
+            raise HTTPException(status_code=404, detail="Combined image not found")
+        
+        return FileResponse(
+            combined_image_path,
+            media_type="image/jpeg",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+        )
+    except Exception as e:
+        logger.error(f"Error serving combined image: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error serving combined image: {str(e)}")
 
 @app.post("/upload_base64")
 async def upload_base64_image(image_data: Base64Image):
