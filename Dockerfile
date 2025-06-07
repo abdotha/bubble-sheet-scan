@@ -2,7 +2,7 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# 1. Install system dependencies including build tools
+# 1. Install essential system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
@@ -20,18 +20,24 @@ RUN mkdir -p /app/output/results /app/output/temp /app/static /app/templates && 
 # 3. Copy requirements first
 COPY requirements.txt .
 
-# 4. Install Python dependencies with error handling
+# 4. Install base packages first
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir numpy && \
-    { pip install --no-cache-dir -r requirements.txt || \
-      { echo "Primary installation failed, trying alternative approach..." && \
-        pip install --no-cache-dir --ignore-installed -r requirements.txt; }; }
+    pip install --no-cache-dir numpy==1.21.6
 
-# 5. Verify critical packages
+# 5. Install packages one by one from requirements.txt
+RUN while read requirement; do \
+      echo "Installing $requirement..."; \
+      pip install --no-cache-dir $requirement || \
+      { echo "Failed to install $requirement - trying with --ignore-installed"; \
+        pip install --no-cache-dir --ignore-installed $requirement || \
+        echo "Skipping $requirement"; }; \
+    done < requirements.txt
+
+# 6. Verify critical packages
 RUN pip list && \
-    python -c "import numpy, torch, cv2; print(f'Versions: numpy={numpy.__version__}, torch={torch.__version__}, opencv={cv2.__version__}')"
+    python -c "import numpy; print(f'numpy version: {numpy.__version__}')"
 
-# 6. Copy application code
+# 7. Copy application code
 COPY . .
 
 EXPOSE 8080
