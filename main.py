@@ -85,12 +85,17 @@ class BubbleSheetValidator:
         Returns True if valid, False otherwise
         """
         if not results:
+            logger.error("Empty results received")
             return False
             
         # Check if results is a dictionary
         if not isinstance(results, dict):
+            logger.error(f"Invalid results type: {type(results)}")
             return False
             
+        # Track questions with incorrect bubble counts
+        invalid_questions = []
+        
         # Check each question's data
         for question_key, data in results.items():
             if not question_key.startswith('question_'):
@@ -98,10 +103,18 @@ class BubbleSheetValidator:
                 
             # Check if bubbles_detected exists and equals 4
             if not isinstance(data, dict) or 'bubbles_detected' not in data:
-                return False
+                logger.error(f"Invalid data structure for {question_key}: {data}")
+                invalid_questions.append(f"{question_key}: Invalid data structure")
+                continue
+                
             if data['bubbles_detected'] != REQUIRED_BUBBLES_PER_QUESTION:
                 logger.warning(f"Invalid bubble count for {question_key}: {data['bubbles_detected']}")
-                return False
+                invalid_questions.append(f"{question_key}: {data['bubbles_detected']} bubbles")
+                
+        # If we have invalid questions, log them all
+        if invalid_questions:
+            logger.error(f"Questions with incorrect bubble counts: {', '.join(invalid_questions)}")
+            return False
                 
         return True
 
@@ -196,6 +209,7 @@ async def upload_file(file: UploadFile = File(...)):
         try:
             results = process_bubble_sheet(str(file_path))
             logger.info("Bubble sheet processing completed")
+            logger.info(f"Processing results: {json.dumps(results, indent=2)}")
         except Exception as e:
             logger.error(f"Error processing bubble sheet: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
@@ -207,10 +221,12 @@ async def upload_file(file: UploadFile = File(...)):
         # Validate the results
         if not BubbleSheetValidator.validate_results(results):
             logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid bubble sheet detected. Please ensure your image has all bubbles clearly visible and try again."
-            )
+            # Instead of raising an error, return the results with a warning
+            return JSONResponse({
+                "results": results,
+                "warning": "Some questions may have incorrect bubble detection. Please verify the results.",
+                "combined_image": "/static/combined_questions.jpg"
+            })
         
         # After processing, combine all images
         logger.info("Starting image combination")
