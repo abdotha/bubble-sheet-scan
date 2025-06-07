@@ -1,11 +1,11 @@
-# Use Python 3.9 slim image as base
 FROM python:3.9-slim
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# 1. Install system dependencies including build tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
     libgl1-mesa-glx \
     libglib2.0-0 \
     libsm6 \
@@ -13,23 +13,27 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first to leverage Docker cache
+# 2. Create directories with proper permissions
+RUN mkdir -p /app/output/results /app/output/temp /app/static /app/templates && \
+    chmod -R 777 /app/output /app/static
+
+# 3. Copy requirements first
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# 4. Install Python dependencies with error handling
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir numpy && \
+    { pip install --no-cache-dir -r requirements.txt || \
+      { echo "Primary installation failed, trying alternative approach..." && \
+        pip install --no-cache-dir --ignore-installed -r requirements.txt; }; }
 
-# Copy the rest of the application
+# 5. Verify critical packages
+RUN pip list && \
+    python -c "import numpy, torch, cv2; print(f'Versions: numpy={numpy.__version__}, torch={torch.__version__}, opencv={cv2.__version__}')"
+
+# 6. Copy application code
 COPY . .
 
-# Create necessary directories
-RUN mkdir -p output/results output/temp static templates
-
-# Set environment variables
-ENV PORT=8080
-
-# Expose the port
 EXPOSE 8080
 
-# Command to run the application
-CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT}
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
