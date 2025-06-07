@@ -32,6 +32,7 @@ numpy==2.2.4
 onnxruntime-gpu==1.21.0
 orjson==3.10.18
 packaging==24.2
+pillow==11.2.1
 protobuf==6.30.2
 pydantic==2.11.5
 pydantic-extra-types==2.10.5
