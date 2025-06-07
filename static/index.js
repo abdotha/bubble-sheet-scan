@@ -46,11 +46,15 @@ document.addEventListener('DOMContentLoaded', function () {
         .then(response => response.json())
         .then(data => {
             loading.style.display = 'none';
+            let html = '';
+            // Use warnings from API if present
+            if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+                html += `<div class='error-message'>${data.warnings.join('<br>')}</div>`;
+            }
             if (data.error) {
                 errorAlert.textContent = data.error;
                 errorAlert.style.display = 'block';
             } else {
-                let html = '';
                 if (data.results) {
                     // Build a table with additional columns for Bubble Area and Bubble Circularity
                     html += `<table class='results-table'><thead><tr><th>Q#</th><th>Detected Answer(s)</th><th>Bubbles Detected</th><th>Fill Ratios</th><th>Bubble Area</th><th>Bubble Circularity</th></tr></thead><tbody>`;

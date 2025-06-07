@@ -173,13 +173,17 @@ async def upload_file(file: UploadFile = File(...)):
         if results is None:
             raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
         
-        # Validate the results
-        if not BubbleSheetValidator.validate_results(results):
-            logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid bubble sheet detected. Please ensure your image has all bubbles clearly visible and try again."
-            )
+        # Check for questions with insufficient bubbles
+        invalid_questions = []
+        for question_key, data in results.items():
+            if not question_key.startswith('question_'):
+                continue
+            if data['bubbles_detected'] != REQUIRED_BUBBLES_PER_QUESTION:
+                question_number = question_key.split('_')[1]
+                invalid_questions.append({
+                    'question_number': question_number,
+                    'bubbles_detected': data['bubbles_detected']
+                })
         
         # After processing, combine all images
         combine_images(output_dir=str(TEMP_DIR))
@@ -195,7 +199,13 @@ async def upload_file(file: UploadFile = File(...)):
         # Prepare response data
         response_data = {
             "results": results,
-            "combined_image": "/output/combined_questions.jpg"
+            "combined_image": "/output/combined_questions.jpg",
+            "validation": {
+                "has_errors": len(invalid_questions) > 0,
+                "invalid_questions": invalid_questions,
+                "total_questions": len([k for k in results.keys() if k.startswith('question_')]),
+                "error_message": f"Questions {', '.join([q['question_number'] for q in invalid_questions])} have less than {REQUIRED_BUBBLES_PER_QUESTION} bubbles detected. Please ensure all bubbles are clearly visible." if invalid_questions else None
+            }
         }
         
         # Save JSON response to file
