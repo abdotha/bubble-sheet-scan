@@ -108,9 +108,29 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
                 html += `</tbody></table>`;
                 if (data.combined_image) {
-                    // Always use /output/combined_questions.jpg with cache-busting for latest image
-                    const imgUrl = '/output/combined_questions.jpg?t=' + new Date().getTime();
-                    html += `<div class='mt-4'><img src="${imgUrl}" class="img-fluid" alt="Combined Results"></div>`;
+                    // Add timestamp and random number to prevent caching
+                    const timestamp = new Date().getTime();
+                    const random = Math.random();
+                    const imgUrl = `/output/combined_questions.jpg?t=${timestamp}&r=${random}`;
+                    
+                    // Create image element with loading handler
+                    const imgContainer = document.createElement('div');
+                    imgContainer.className = 'mt-4';
+                    
+                    const img = document.createElement('img');
+                    img.src = imgUrl;
+                    img.className = 'img-fluid';
+                    img.alt = 'Combined Results';
+                    img.style.maxWidth = '100%';
+                    
+                    // Add error handling
+                    img.onerror = function() {
+                        console.error('Error loading combined image');
+                        imgContainer.innerHTML = '<div class="alert alert-warning">Error loading combined image. Please try again.</div>';
+                    };
+                    
+                    imgContainer.appendChild(img);
+                    html += imgContainer.outerHTML;
                 }
                 results.innerHTML = html;
             }

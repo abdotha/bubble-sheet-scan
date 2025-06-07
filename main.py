@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Request, HTTPException
+from fastapi import FastAPI, File, UploadFile, Request, HTTPException, Response
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -26,12 +26,13 @@ logger = logging.getLogger(__name__)
 # Constants
 REQUIRED_BUBBLES_PER_QUESTION = 4
 
-# Use /tmp for all output and temp directories for Google Cloud Run compatibility
+# Use temp directory for all output and temp directories for Google Cloud Run compatibility
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
-OUTPUT_DIR = Path("/tmp/output/results")
-TEMP_DIR = Path("/tmp/output/temp")
+TEMP_BASE = Path(os.environ.get('TEMP', '/tmp'))  # Use system temp directory
+OUTPUT_DIR = TEMP_BASE / "output/results"
+TEMP_DIR = TEMP_BASE / "output/temp"
 COMBINED_IMAGE_PATH = TEMP_DIR / "combined_questions.jpg"
 
 class FileManager:
@@ -330,14 +331,26 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
             )
         
         # After processing, combine all images
-        combine_images(output_dir='output/temp')
+        logger.info("Attempting to combine images...")
+        success = combine_images(output_dir=str(TEMP_DIR))
+        
+        if not success:
+            logger.error("Failed to combine images")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate combined image. Please try again."
+            )
         
         # Check if combined image exists
         combined_image_path = COMBINED_IMAGE_PATH
         if not combined_image_path.exists():
-            return JSONResponse({
-                "error": "Failed to generate combined image"
-            })
+            logger.error(f"Combined image not found at {combined_image_path}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to generate combined image. Please try again."
+            )
+            
+        logger.info(f"Successfully generated combined image at {combined_image_path}")
         
         # Evaluate answers
         evaluation_results = []
@@ -533,11 +546,50 @@ async def grade_bubble_sheet(file: UploadFile = File(...)):
     }
 
 @app.get("/output/combined_questions.jpg")
-def get_combined_image():
+async def get_combined_image():
     """Serve the combined questions image from the temp directory"""
-    if not COMBINED_IMAGE_PATH.exists():
-        raise HTTPException(status_code=404, detail="Combined image not found")
-    return FileResponse(str(COMBINED_IMAGE_PATH), media_type="image/jpeg")
+    try:
+        if not COMBINED_IMAGE_PATH.exists():
+            raise HTTPException(status_code=404, detail="Combined image not found")
+            
+        # Read the image file
+        with open(COMBINED_IMAGE_PATH, 'rb') as f:
+            image_data = f.read()
+            
+        # Generate a unique ETag based on file modification time
+        etag = str(os.path.getmtime(COMBINED_IMAGE_PATH))
+        
+        return Response(
+            content=image_data,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "ETag": etag
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error serving combined image: {e}")
+        raise HTTPException(status_code=500, detail="Error serving image")
+
+@app.on_event("startup")
+async def startup_event():
+    """Clean up temporary files on startup"""
+    try:
+        # Create necessary directories
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        os.makedirs(TEMP_DIR, exist_ok=True)
+        
+        # Clean up old files
+        for file in os.listdir(TEMP_DIR):
+            if file.startswith('combined_questions_'):
+                try:
+                    os.remove(os.path.join(TEMP_DIR, file))
+                except Exception as e:
+                    logger.error(f"Error removing old file {file}: {e}")
+    except Exception as e:
+        logger.error(f"Error during startup cleanup: {e}")
 
 if __name__ == "__main__":
     import uvicorn
