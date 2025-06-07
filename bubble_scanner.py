@@ -88,15 +88,15 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
             local_question_num = int(question_file.replace('question_', '').replace('.jpg', ''))
             global_question_num = get_section_question_number(section_name, local_question_num)
             
-            print(f"\nProcessing Question {global_question_num}...")
+            # print(f"\nProcessing Question {global_question_num}...")
             
             # Read and check the question image
             question_img = cv2.imread(question_path)
             if question_img is None:
-                print(f"Error: Could not read question image {question_path}")
+                # print(f"Error: Could not read question image {question_path}")
                 continue
                 
-            print(f"Question image size: {question_img.shape}")
+            # print(f"Question image size: {question_img.shape}")
             
             # Get model answer for this question if available
             model_answer = None
@@ -107,7 +107,7 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
             result, bubbles, selected, rejected = detector.process(question_path, model_answer)
             
             if result is None:
-                print(f"Error: Failed to process question {global_question_num}")
+                # print(f"Error: Failed to process question {global_question_num}")
                 continue
                 
             # Save processed image
@@ -121,11 +121,13 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
                 valid_selected = [s for s in selected if s < 4]
                 if valid_selected:
                     answer = valid_selected
-                    print(f"Selected answers: {answer}")
+                    # print(f"Selected answers: {answer}")
                 else:
-                    print("No valid bubbles selected")
+                    # print("No valid bubbles selected")
+                    pass
             else:
-                print("No answer selected")
+                # print("No answer selected")
+                pass
             
             # Store results
             question_result = {
@@ -138,10 +140,10 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
             
             all_answers.append(question_result)
             
-            print(f"Bubbles detected: {len(bubbles)}")
-            print(f"Fill ratios: {[f'{r:.2f}' for r in question_result['fill_ratios']]}")
-            if model_answer is not None:
-                print(f"Model answer: {model_answer}")
+            # print(f"Bubbles detected: {len(bubbles)}")
+            # print(f"Fill ratios: {[f'{r:.2f}' for r in question_result['fill_ratios']]}")
+            # if model_answer is not None:
+            #     print(f"Model answer: {model_answer}")
 
     # Sort all answers by question number
     all_answers.sort(key=lambda x: x['question_number'])

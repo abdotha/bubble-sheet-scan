@@ -48,7 +48,7 @@ class BubbleDetector:
         bubbles = []
         rejected = []
         
-        print("\n=== Rejected Contours Analysis ===")
+        # print("\n=== Rejected Contours Analysis ===")
         for cnt in contours:
             area = cv2.contourArea(cnt)
             perimeter = cv2.arcLength(cnt, True)
@@ -133,9 +133,9 @@ class BubbleDetector:
         # Sort selected bubbles by fill ratio (highest first)
         selected_idx.sort(key=lambda i: bubbles[i]['fill_ratio'], reverse=True)
         
-        print(f"\nSelected bubbles (fill ratio > {self.fill_ratio_threshold}):")
-        for idx in selected_idx:
-            print(f"Bubble {idx+1}: {bubbles[idx]['fill_ratio']:.3f}")
+        # print(f"\nSelected bubbles (fill ratio > {self.fill_ratio_threshold}):")
+        # for idx in selected_idx:
+        #     print(f"Bubble {idx+1}: {bubbles[idx]['fill_ratio']:.3f}")
         
         return selected_idx
 
@@ -222,13 +222,13 @@ class BubbleDetector:
         else:
             result = self.visualize(img, bubbles, rejected, selected)
         
-        # Console reporting
-        print("\n=== Final Results ===")
-        print(f"Found {len(bubbles)} valid bubbles (rejected {len(rejected)} contours)")
-        print(f"Selected bubbles: {selected}")
-        if model_answer is not None:
-            print(f"Model answer: {model_answer}")
-            print(f"Correct answer: {model_answer in selected}")
+        # # Console reporting
+        # print("\n=== Final Results ===")
+        # print(f"Found {len(bubbles)} valid bubbles (rejected {len(rejected)} contours)")
+        # print(f"Selected bubbles: {selected}")
+        # if model_answer is not None:
+        #     print(f"Model answer: {model_answer}")
+        #     print(f"Correct answer: {model_answer in selected}")
         
         # print("\nBubble Statistics:")
         # for i, bubble in enumerate(bubbles):
