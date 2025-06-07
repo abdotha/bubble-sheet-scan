@@ -120,8 +120,9 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
                 # Filter out any indices >= 4
                 valid_selected = [s for s in selected if s < 4]
                 if valid_selected:
-                    answer = valid_selected
-                    print(f"Selected answers: {answer}")
+                    # Take the first valid selected answer
+                    answer = valid_selected[0]
+                    print(f"Selected answer: {answer}")
                 else:
                     print("No valid bubbles selected")
             else:
@@ -130,12 +131,19 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
             # Store results
             question_result = {
                 'question_number': global_question_num,
-                'answer': answer,  # Will be None if no answer or invalid
+                'detected_answer': answer,  # Will be None if no answer or invalid
                 'fill_ratios': [b['fill_ratio'] for b in bubbles],
                 'bubble_area': [b['area'] for b in bubbles],
                 'bubble_circularity': [b['circularity'] for b in bubbles],
                 'bubbles_detected': len(bubbles),
-                'model_answer': model_answer
+                'model_answer': model_answer,
+                'rejected_areas': [
+                    {
+                        'circularity': b['circularity'],
+                        'area': b['area'],
+                        'reason': b.get('rejection_reason', 'Unknown')
+                    } for b in rejected
+                ] if rejected else []
             }
             
             all_answers.append(question_result)
@@ -153,12 +161,13 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
     for q in all_answers:
         question_key = f"question_{q['question_number']}"
         results_dict[question_key] = {
-            'answer': q['answer'],
+            'detected_answer': q['detected_answer'],
             'fill_ratios': q['fill_ratios'],
             'bubble_area': q.get('bubble_area', []),
             'bubble_circularity': q.get('bubble_circularity', []),
             'bubbles_detected': q['bubbles_detected'],
-            'model_answer': q['model_answer']
+            'model_answer': q['model_answer'],
+            'rejected_areas': q['rejected_areas']
         }
 
     # Save detailed results as JSON
@@ -174,7 +183,7 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
         # Write summary for each question
         for result in all_answers:
             question_num = result['question_number']
-            answer = result['answer']
+            answer = result['detected_answer']
             answer_text = str(answer) if answer is not None else 'No Answer'
             model_answer = result['model_answer']
             model_answer_text = f" (Model: {model_answer})" if model_answer is not None else ""
@@ -190,10 +199,10 @@ def process_bubble_sheet(bubble_sheet_path, output_dir='output', model_answers=N
             section_answers = [r for r in all_answers 
                              if get_section_question_number(section, 1) <= r['question_number'] <= 
                                 get_section_question_number(section, 15)]
-            answered = sum(1 for r in section_answers if r['answer'] is not None)
+            answered = sum(1 for r in section_answers if r['detected_answer'] is not None)
             f.write(f"\n{section.upper()} Section (Questions {get_section_question_number(section, 1)}-{get_section_question_number(section, 15)}):\n")
             f.write(f"Questions answered: {answered}/15\n")
-            f.write("Answers: " + ", ".join(str(r['answer']) if r['answer'] is not None else 'X' 
+            f.write("Answers: " + ", ".join(str(r['detected_answer']) if r['detected_answer'] is not None else 'X' 
                                           for r in section_answers) + "\n")
 
     print(f"\nProcessing complete. Results saved to {results_dir}")

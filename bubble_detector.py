@@ -88,7 +88,27 @@ class BubbleDetector:
                 if self.debug:
                     print(f"Valid bubble - Fill ratio: {fill_ratio:.2f}, Mean intensity: {mean_val:.1f}")
             else:
-                rejected.append(cnt)
+                # Determine rejection reason
+                rejection_reason = []
+                if not size_ok:
+                    if area <= self.min_area:
+                        rejection_reason.append("Too small")
+                    else:
+                        rejection_reason.append("Too large")
+                if not shape_ok:
+                    if circularity <= self.min_circularity:
+                        rejection_reason.append("Low circularity")
+                    if aspect_ratio >= self.max_aspect_ratio:
+                        rejection_reason.append("High aspect ratio")
+                
+                rejected.append({
+                    'contour': cnt,
+                    'area': area,
+                    'circularity': circularity,
+                    'aspect_ratio': aspect_ratio,
+                    'rejection_reason': " & ".join(rejection_reason)
+                })
+                
                 print(f"\nRejected Contour:")
                 print(f"  Area: {area:.1f} (min: {self.min_area}, max: {self.max_area})")
                 print(f"  Diameter: {diameter:.1f}px (min: {self.min_diameter}, max: {self.max_diameter})")
@@ -96,6 +116,7 @@ class BubbleDetector:
                 print(f"  Aspect Ratio: {aspect_ratio:.2f} (max: {self.max_aspect_ratio})")
                 print(f"  Size OK: {size_ok}")
                 print(f"  Shape OK: {shape_ok}")
+                print(f"  Rejection Reason: {rejection_reason}")
         
         # Sort bubbles right-to-left (0 is rightmost, 3 is leftmost)
         bubbles.sort(key=lambda b: b['center'][0], reverse=True)

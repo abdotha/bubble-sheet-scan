@@ -68,6 +68,48 @@ document.addEventListener('DOMContentLoaded', function () {
                         html += `<tr><td>${key.replace('question_', '')}</td><td>${Array.isArray(r.answer) ? r.answer.join(', ') : (r.answer ?? 'No Answer')}</td><td>${r.bubbles_detected ?? ''}</td><td>${Array.isArray(r.fill_ratios) ? r.fill_ratios.map(x => x.toFixed(2)).join(', ') : ''}</td><td>${Array.isArray(r.bubble_area) ? r.bubble_area.map(x => x.toFixed(2)).join(', ') : (r.bubble_area ?? '')}</td><td>${Array.isArray(r.bubble_circularity) ? r.bubble_circularity.map(x => x.toFixed(2)).join(', ') : (r.bubble_circularity ?? '')}</td></tr>`;
                     });
                     html += `</tbody></table>`;
+
+                    // Add rejected areas table if any exist
+                    const rejectedAreas = [];
+                    Object.entries(data.results).forEach(([questionKey, r]) => {
+                        if (r.rejected_areas && Array.isArray(r.rejected_areas)) {
+                            r.rejected_areas.forEach(area => {
+                                rejectedAreas.push({
+                                    question_number: questionKey.replace('question_', ''),
+                                    circularity: area.circularity,
+                                    area: area.area,
+                                    reason: area.reason || 'Unknown'
+                                });
+                            });
+                        }
+                    });
+
+                    if (rejectedAreas.length > 0) {
+                        html += `
+                            <div class="mt-4">
+                                <h5>Rejected Areas Analysis</h5>
+                                <table class='results-table'>
+                                    <thead>
+                                        <tr>
+                                            <th>Question</th>
+                                            <th>Circularity</th>
+                                            <th>Area (pixels)</th>
+                                            <th>Reason</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${rejectedAreas.map(area => `
+                                            <tr>
+                                                <td>${area.question_number}</td>
+                                                <td>${Number(area.circularity).toFixed(2)}</td>
+                                                <td>${Number(area.area).toFixed(2)}</td>
+                                                <td>${area.reason}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>`;
+                    }
                 }
                 if (data.combined_image) {
                     // Prefer /output/combined_questions.jpg endpoint for always-fresh image

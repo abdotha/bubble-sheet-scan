@@ -175,15 +175,28 @@ async def upload_file(file: UploadFile = File(...)):
         
         # Check for questions with insufficient bubbles
         invalid_questions = []
+        rejected_areas = []
+        
         for question_key, data in results.items():
             if not question_key.startswith('question_'):
                 continue
+                
             if data['bubbles_detected'] != REQUIRED_BUBBLES_PER_QUESTION:
                 question_number = question_key.split('_')[1]
                 invalid_questions.append({
                     'question_number': question_number,
                     'bubbles_detected': data['bubbles_detected']
                 })
+                
+                # Add rejected areas information if available
+                if 'rejected_areas' in data:
+                    for area in data['rejected_areas']:
+                        rejected_areas.append({
+                            'question_number': question_number,
+                            'circularity': area.get('circularity', 0),
+                            'area': area.get('area', 0),
+                            'reason': area.get('reason', 'Unknown')
+                        })
         
         # After processing, combine all images
         combine_images(output_dir=str(TEMP_DIR))
@@ -205,7 +218,8 @@ async def upload_file(file: UploadFile = File(...)):
                 "invalid_questions": invalid_questions,
                 "total_questions": len([k for k in results.keys() if k.startswith('question_')]),
                 "error_message": f"Questions {', '.join([q['question_number'] for q in invalid_questions])} have less than {REQUIRED_BUBBLES_PER_QUESTION} bubbles detected. Please ensure all bubbles are clearly visible." if invalid_questions else None
-            }
+            },
+            "rejected_areas": rejected_areas
         }
         
         # Save JSON response to file
