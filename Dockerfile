@@ -39,17 +39,21 @@ RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
 COPY . .
 
 # Create necessary directories and set permissions
-RUN mkdir -p output/results output/temp static templates \
-    && chown -R appuser:appuser /app
+RUN mkdir -p output/results output/temp static templates && \
+    chown -R appuser:appuser /app && \
+    chmod -R 755 /app && \
+    chmod -R 777 /app/output /app/static
 
 # Switch to non-root user
 USER appuser
 
 # Set environment variables
 ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
+ENV LOG_LEVEL=DEBUG
 
 # Expose the port
 EXPOSE 8080
 
 # Command to run the application
-CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT} 
+CMD exec uvicorn main:app --host 0.0.0.0 --port ${PORT} --log-level debug 

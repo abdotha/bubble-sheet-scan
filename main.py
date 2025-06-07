@@ -154,6 +154,8 @@ async def home(request: Request):
 async def upload_file(file: UploadFile = File(...)):
     """Upload and process a bubble sheet image"""
     try:
+        logger.info(f"Received file upload: {file.filename}")
+        
         # Clean up directories before processing
         FileManager.cleanup_output_folder()
         FileManager.cleanup_static_folder()
@@ -163,14 +165,23 @@ async def upload_file(file: UploadFile = File(...)):
         filename = f"bubble_sheet_{timestamp}.jpg"
         file_path = OUTPUT_DIR / filename
         
+        logger.info(f"Saving file to: {file_path}")
+        
         # Save the uploaded file
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        try:
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            logger.info("File saved successfully")
+        except Exception as e:
+            logger.error(f"Error saving file: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
         
         # Process the image using bubble scanner
+        logger.info("Processing bubble sheet")
         results = process_bubble_sheet(str(file_path))
         
         if results is None:
+            logger.error("Failed to process bubble sheet - results is None")
             raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
         
         # Validate the results
@@ -182,15 +193,19 @@ async def upload_file(file: UploadFile = File(...)):
             )
         
         # After processing, combine all images
+        logger.info("Combining images")
         combine_images()
         
         # Check if combined image exists
         combined_image_path = STATIC_DIR / "combined_questions.jpg"
         if not combined_image_path.exists():
+            logger.error("Combined image not found")
             return JSONResponse({
                 "results": results,
                 "error": "Failed to generate combined image"
             })
+        
+        logger.info("Processing completed successfully")
         
         # Prepare response data
         response_data = {
@@ -198,23 +213,11 @@ async def upload_file(file: UploadFile = File(...)):
             "combined_image": "/static/combined_questions.jpg"
         }
         
-        # Save JSON response to file
-        json_filename = f"results_{timestamp}.json"
-        json_path = OUTPUT_DIR / json_filename
-        with open(json_path, "w") as f:
-            json.dump(response_data, f, indent=4)
-        
         return JSONResponse(response_data)
         
-    except HTTPException as he:
-        # Re-raise HTTP exceptions
-        raise he
     except Exception as e:
-        logger.error(f"Error processing file: {e}")
+        logger.error(f"Unexpected error in upload_file: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # Clean up output directory after processing
-        FileManager.cleanup_output_folder()
 
 @app.get("/evaluate", response_class=HTMLResponse)
 async def evaluation_page(request: Request):
