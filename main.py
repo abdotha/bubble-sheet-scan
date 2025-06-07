@@ -350,14 +350,11 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
                         logger.warning(f"Invalid data format for question {i+1}: {question_data}")
                         student_answers = []
                     else:
-                        # Use detected_answer for evaluation
-                        detected = question_data.get('detected_answer')
-                        student_answers = [detected] if detected is not None else []
+                        # Use detected_answers (list) for evaluation
+                        detected_answers = question_data.get('detected_answers', [])
+                        student_answers = detected_answers if detected_answers else []
                 
                 correct_answer = model_answers.answers[i]
-                
-                # Get the student's answer (first answer if multiple)
-                student_answer = student_answers[0] if student_answers else None
                 
                 # Check if student selected multiple answers
                 has_multiple_answers = len(student_answers) > 1
@@ -365,7 +362,7 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
                 # Mark as correct if:
                 # 1. Student selected exactly one answer
                 # 2. That answer matches the correct answer (both in 4-0 format)
-                is_correct = not has_multiple_answers and student_answer == correct_answer
+                is_correct = not has_multiple_answers and len(student_answers) == 1 and student_answers[0] == correct_answer
                 
                 if is_correct:
                     correct_count += 1
@@ -374,9 +371,9 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
                 if not student_answers:
                     student_answer_display = "No Answer"
                 elif has_multiple_answers:
-                    student_answer_display = f"Multiple: {student_answers}"  # Already in 4-0 format
+                    student_answer_display = f"Multiple: {student_answers}"
                 else:
-                    student_answer_display = str(student_answer)  # Already in 4-0 format
+                    student_answer_display = str(student_answers[0])
                 
                 # Get fill ratios for debugging
                 fill_ratios = question_data.get('fill_ratios', []) if isinstance(question_data, dict) else []

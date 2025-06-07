@@ -67,12 +67,19 @@ document.addEventListener('DOMContentLoaded', function () {
                         const r = data.results[key];
                         // Use detected_answers (array) if present, else fallback to detected_answer
                         let answerDisplay = 'No Answer';
+                        let isMultiple = false;
                         if (Array.isArray(r.detected_answers) && r.detected_answers.length > 0) {
                             answerDisplay = r.detected_answers.join(', ');
+                            if (r.detected_answers.length > 1) {
+                                answerDisplay = `Multiple: ${answerDisplay}`;
+                                isMultiple = true;
+                            }
                         } else if (r.detected_answer !== undefined && r.detected_answer !== null) {
                             answerDisplay = r.detected_answer;
                         }
-                        html += `<tr><td>${key.replace('question_', '')}</td><td>${answerDisplay}</td><td>${r.bubbles_detected ?? ''}</td><td>${Array.isArray(r.fill_ratios) ? r.fill_ratios.map(x => x.toFixed(2)).join(', ') : ''}</td><td>${Array.isArray(r.bubble_area) ? r.bubble_area.map(x => x.toFixed(2)).join(', ') : (r.bubble_area ?? '')}</td><td>${Array.isArray(r.bubble_circularity) ? r.bubble_circularity.map(x => x.toFixed(2)).join(', ') : (r.bubble_circularity ?? '')}</td></tr>`;
+                        // Add a class for multiple answers
+                        const rowClass = isMultiple ? 'warning' : '';
+                        html += `<tr class='${rowClass}'><td>${key.replace('question_', '')}</td><td>${answerDisplay}</td><td>${r.bubbles_detected ?? ''}</td><td>${Array.isArray(r.fill_ratios) ? r.fill_ratios.map(x => x.toFixed(2)).join(', ') : ''}</td><td>${Array.isArray(r.bubble_area) ? r.bubble_area.map(x => x.toFixed(2)).join(', ') : (r.bubble_area ?? '')}</td><td>${Array.isArray(r.bubble_circularity) ? r.bubble_circularity.map(x => x.toFixed(2)).join(', ') : (r.bubble_circularity ?? '')}</td></tr>`;
                     });
                     html += `</tbody></table>`;
 
