@@ -1,8 +1,8 @@
-FROM python:3.11-slim
+FROM python:3.9-slim
 
 WORKDIR /app
 
-# 1. Install essential system dependencies
+# 1. Install comprehensive system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
@@ -11,33 +11,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender-dev \
+    libjpeg-dev \
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. Create directories with proper permissions
 RUN mkdir -p /app/output/results /app/output/temp /app/static /app/templates && \
     chmod -R 777 /app/output /app/static
 
-# 3. Copy requirements first
+# 3. Install Python dependencies in controlled stages
 COPY requirements.txt .
 
-# 4. Install base packages first
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir numpy==1.21.6
+RUN python -m pip install --no-cache-dir --upgrade pip==21.3.1 setuptools==59.6.0 wheel==0.37.0 && \
+    pip install --no-cache-dir numpy==1.21.6 && \
+    pip install --no-cache-dir opencv-python-headless==4.5.5.64 && \
+    pip install --no-cache-dir torch==1.10.0+cpu torchvision==0.11.1+cpu -f https://download.pytorch.org/whl/torch_stable.html && \
+    pip install --no-cache-dir -r requirements.txt
 
-# 5. Install packages one by one from requirements.txt
-RUN while read requirement; do \
-      echo "Installing $requirement..."; \
-      pip install --no-cache-dir $requirement || \
-      { echo "Failed to install $requirement - trying with --ignore-installed"; \
-        pip install --no-cache-dir --ignore-installed $requirement || \
-        echo "Skipping $requirement"; }; \
-    done < requirements.txt
+# 4. Verification stage
+RUN python -c "import numpy; import cv2; import torch; print(f'Versions: numpy={numpy.__version__}, opencv={cv2.__version__}, torch={torch.__version__}')"
 
-# 6. Verify critical packages
-RUN pip list && \
-    python -c "import numpy; print(f'numpy version: {numpy.__version__}')"
-
-# 7. Copy application code
+# 5. Copy application
 COPY . .
 
 EXPOSE 8080
