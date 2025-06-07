@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const loading = document.getElementById('loading');
     const results = document.getElementById('results');
     const preview = document.getElementById('preview');
-
+ 
     // Handle model answers form
     modelAnswersForm.addEventListener('submit', function (e) {
         e.preventDefault();

@@ -5,7 +5,7 @@ __pycache__/
 .Python
 venv/
 output/
-!static/styles.css
+input_images/
 *.jpg
 *.jpeg
 *.png

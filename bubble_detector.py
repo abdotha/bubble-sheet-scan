@@ -4,7 +4,7 @@ import numpy as np
 class BubbleDetector:
     def __init__(self):
         # More flexible size parameters
-        self.min_diameter = 25  
+        self.min_diameter = 25   
         self.max_diameter = 100  # Maximum size
         self.min_area = int(np.pi * (self.min_diameter/2)**2)  # Calculate area from diameter
         self.max_area = int(np.pi * (self.max_diameter/2)**2)
