@@ -15,6 +15,8 @@ from pathlib import Path
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import glob
+import base64
+from io import BytesIO
 
 # Configure logging
 logging.basicConfig(
@@ -124,6 +126,9 @@ class ModelAnswers(BaseModel):
 
 # Define model answers file path
 MODEL_ANSWERS_FILE = OUTPUT_DIR / "model_answers.json"
+
+class Base64Image(BaseModel):
+    image: str  # base64 encoded image string
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -469,6 +474,106 @@ def get_combined_image():
     if not COMBINED_IMAGE_PATH.exists():
         raise HTTPException(status_code=404, detail="Combined image not found")
     return FileResponse(str(COMBINED_IMAGE_PATH), media_type="image/jpeg")
+
+@app.post("/upload_base64")
+async def upload_base64_image(image_data: Base64Image):
+    """Upload and process a base64 encoded bubble sheet image"""
+    try:
+        logger.info("Received base64 image upload")
+        
+        # Clean up directories before processing
+        try:
+            FileManager.cleanup_output_folder()
+            FileManager.cleanup_static_folder()
+            logger.info("Directories cleaned successfully")
+        except Exception as e:
+            logger.error(f"Error cleaning directories: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error preparing directories: {str(e)}")
+        
+        # Generate unique filename with timestamp
+        timestamp = int(time.time())
+        filename = f"bubble_sheet_{timestamp}.jpg"
+        file_path = OUTPUT_DIR / filename
+        
+        logger.info(f"Attempting to save file to: {file_path}")
+        logger.info(f"Directory exists: {OUTPUT_DIR.exists()}")
+        logger.info(f"Directory permissions: {oct(OUTPUT_DIR.stat().st_mode)[-3:]}")
+        
+        # Decode and save the base64 image
+        try:
+            # Remove the data URL prefix if present
+            if ',' in image_data.image:
+                image_data.image = image_data.image.split(',')[1]
+            
+            # Decode base64 image
+            image_bytes = base64.b64decode(image_data.image)
+            
+            # Save the image
+            with open(file_path, "wb") as buffer:
+                buffer.write(image_bytes)
+            logger.info("File saved successfully")
+        except Exception as e:
+            logger.error(f"Error saving base64 image: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error saving image: {str(e)}")
+        
+        # Process the image using bubble scanner
+        logger.info("Starting bubble sheet processing")
+        try:
+            results = process_bubble_sheet(str(file_path))
+            logger.info("Bubble sheet processing completed")
+            logger.info(f"Processing results: {json.dumps(results, indent=2)}")
+        except Exception as e:
+            logger.error(f"Error processing bubble sheet: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+        
+        if results is None:
+            logger.error("Failed to process bubble sheet - results is None")
+            raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
+        
+        # Validate the results
+        if not BubbleSheetValidator.validate_results(results):
+            logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
+            # Instead of raising an error, return the results with a warning
+            return JSONResponse({
+                "results": results,
+                "warning": "Some questions may have incorrect bubble detection. Please verify the results.",
+                "combined_image": "/static/combined_questions.jpg"
+            })
+        
+        # After processing, combine all images
+        logger.info("Starting image combination")
+        try:
+            combine_images()
+            logger.info("Image combination completed")
+        except Exception as e:
+            logger.error(f"Error combining images: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error combining images: {str(e)}")
+        
+        # Check if combined image exists
+        combined_image_path = STATIC_DIR / "combined_questions.jpg"
+        if not combined_image_path.exists():
+            logger.error(f"Combined image not found at: {combined_image_path}")
+            return JSONResponse({
+                "results": results,
+                "error": "Failed to generate combined image"
+            })
+        
+        logger.info("Processing completed successfully")
+        
+        # Prepare response data
+        response_data = {
+            "results": results,
+            "combined_image": "/static/combined_questions.jpg"
+        }
+        
+        return JSONResponse(response_data)
+        
+    except HTTPException as he:
+        logger.error(f"HTTP Exception: {str(he)}")
+        raise he
+    except Exception as e:
+        logger.error(f"Unexpected error in upload_base64_image: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

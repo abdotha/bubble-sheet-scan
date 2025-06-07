@@ -58,9 +58,6 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
 
     if (!fileInput.files.length) return;
 
-    const formData = new FormData();
-    formData.append('file', fileInput.files[0]);
-
     // Reset UI
     loading.style.display = 'block';
     results.innerHTML = '';
@@ -68,9 +65,27 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
     errorAlert.style.display = 'none';
 
     try {
-        const response = await fetch('/upload', {
+        // Convert file to base64
+        const file = fileInput.files[0];
+        const reader = new FileReader();
+        
+        const base64Promise = new Promise((resolve, reject) => {
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+        });
+        
+        reader.readAsDataURL(file);
+        const base64Image = await base64Promise;
+
+        // Send base64 image to server
+        const response = await fetch('/upload_base64', {
             method: 'POST',
-            body: formData
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                image: base64Image
+            })
         });
         
         if (!response.ok) {
@@ -83,6 +98,11 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
         if (data.error) {
             showError(data.error);
             return;
+        }
+
+        // Display warning if present
+        if (data.warning) {
+            showError(data.warning);
         }
 
         // Display results in a table
