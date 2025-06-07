@@ -26,12 +26,12 @@ logger = logging.getLogger(__name__)
 # Constants
 REQUIRED_BUBBLES_PER_QUESTION = 4
 
-# Define base paths
+# Use /tmp for all output and temp directories for Google Cloud Run compatibility
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
-OUTPUT_DIR = BASE_DIR / "output" / "results"
-TEMP_DIR = BASE_DIR / "output" / "temp"
+OUTPUT_DIR = Path("/tmp/output/results")
+TEMP_DIR = Path("/tmp/output/temp")
 COMBINED_IMAGE_PATH = TEMP_DIR / "combined_questions.jpg"
 
 class FileManager:
@@ -197,6 +197,14 @@ async def upload_file(file: UploadFile = File(...)):
                             'area': area.get('area', 0),
                             'reason': area.get('reason', 'Unknown')
                         })
+        
+        # Check if all questions have 4 bubbles detected
+        not_four_bubbles = [q for q, qdata in results.items() if isinstance(qdata, dict) and qdata.get('bubbles_detected', 4) != 4]
+        if not_four_bubbles:
+            raise HTTPException(
+                status_code=400,
+                detail="Please provide a more clear image and try again."
+            )
         
         # After processing, combine all images
         combine_images(output_dir=str(TEMP_DIR))
@@ -494,19 +502,32 @@ async def grade_bubble_sheet(file: UploadFile = File(...)):
         else:
             student_answers.append(None)
 
-    # Draw on the combined image (from temp)
+    # Always re-generate the combined image for each /grade call to ensure freshness
+    combine_images(output_dir=str(TEMP_DIR))
     combined_img_path = TEMP_DIR / "combined_questions.jpg"
     if not combined_img_path.exists():
-        combine_images(output_dir=str(TEMP_DIR))
+        raise HTTPException(status_code=500, detail="Failed to generate combined image.")
     pil_img = Image.open(str(combined_img_path)).convert("RGB")
     buffered = BytesIO()
     pil_img.save(buffered, format="JPEG")
     img_base64 = base64.b64encode(buffered.getvalue()).decode()
 
+    # Calculate score (exclude multi-answers and unanswered from correct count)
+    score = (correct_count / model_answers.number_of_questions) * 100 if model_answers.number_of_questions > 0 else 0
+
+    # Check if all questions have 4 bubbles detected
+    not_four_bubbles = [q for q, qdata in results.items() if isinstance(qdata, dict) and qdata.get('bubbles_detected', 4) != 4]
+    if not_four_bubbles:
+        raise HTTPException(
+            status_code=400,
+            detail= "Please provide a more clear image and try again."
+        )
+
     return {
         "image_base64": img_base64,
         "student_answers": student_answers,
         "correct_answers": correct_count,
+        "score": score,
         "total_questions": model_answers.number_of_questions,
         "multi_answer_questions": multi_answers
     }
