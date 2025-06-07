@@ -15,6 +15,10 @@ from pathlib import Path
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 import glob
+import base64
+from io import BytesIO
+from PIL import Image
+import requests  # Import requests at the top level
 
 # Configure logging
 logging.basicConfig(
@@ -35,6 +39,16 @@ OUTPUT_DIR = TEMP_BASE / "output/results"
 TEMP_DIR = TEMP_BASE / "output/temp"
 COMBINED_IMAGE_PATH = TEMP_DIR / "combined_questions.jpg"
 
+# Ensure directories exist
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(TEMP_DIR, exist_ok=True)
+
+class BubbleSheetData(BaseModel):
+    imageUrl: str = None
+    imageBase64: str = None  # Base64 encoded image data
+    answer_key: dict = {}  # Dict of question numbers (str) to answers (int)
+    
+
 class FileManager:
     """Handles file operations and directory management"""
     
@@ -48,21 +62,31 @@ class FileManager:
     
     @staticmethod
     def cleanup_output_folder():
-        """Clean up all files and subfolders in the output directory except .json files"""
+        """Clean up the output folder"""
         try:
-            for item in OUTPUT_DIR.glob("**/*"):
-                if item.is_file() and not item.name.endswith('.json'):
-                    item.unlink()
-                elif item.is_dir() and item != TEMP_DIR:
-                    shutil.rmtree(item)
-            logger.info("Output directory cleaned successfully")
+            if OUTPUT_DIR.exists():
+                for file in OUTPUT_DIR.glob("*"):
+                    try:
+                        if file.is_file():
+                            file.unlink()
+                    except Exception as e:
+                        logger.error(f"Error deleting file {file}: {e}")
         except Exception as e:
-            logger.error(f"Error cleaning output directory: {e}")
+            logger.error(f"Error cleaning output folder: {e}")
     
     @staticmethod
     def cleanup_static_folder():
-        """Do not remove any files from the static directory anymore"""
-        logger.info("Static directory cleanup skipped (no files removed)")
+        """Clean up the static folder"""
+        try:
+            if TEMP_DIR.exists():
+                for file in TEMP_DIR.glob("*"):
+                    try:
+                        if file.is_file():
+                            file.unlink()
+                    except Exception as e:
+                        logger.error(f"Error deleting file {file}: {e}")
+        except Exception as e:
+            logger.error(f"Error cleaning static folder: {e}")
 
     @staticmethod
     def cleanup_temp_folder():
@@ -300,6 +324,10 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
                 detail="Error loading model answers. Please try uploading them again."
             )
         
+        # Ensure directories exist
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        os.makedirs(TEMP_DIR, exist_ok=True)
+        
         # Clean up directories before processing
         FileManager.cleanup_output_folder()
         FileManager.cleanup_static_folder()
@@ -459,91 +487,112 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
         FileManager.cleanup_output_folder()
 
 @app.post("/grade")
-async def grade_bubble_sheet(file: UploadFile = File(...)):
+async def grade_bubble_sheet(request: BubbleSheetData):
     """
     Endpoint to grade a bubble sheet and return:
     - Processed/graded image (base64, with green/red circles)
-    - JSON with student answers (0-3 or null)
+    - JSON with student answers as a dict {"1": 3, ...}
     - Student score
     """
-    import cv2
-    import base64
-    from io import BytesIO
-    from PIL import Image
+    try:
+        # Parse model answers from answer_key dict
+        if not isinstance(request.answer_key, dict):
+            raise HTTPException(status_code=400, detail="answer_key must be a dictionary of question numbers to answers.")
+        try:
+            sorted_items = sorted(request.answer_key.items(), key=lambda x: int(x[0]))
+            model_answers_list = [v for k, v in sorted_items]
+            question_numbers = [int(k) for k, v in sorted_items]
+        except Exception:
+            raise HTTPException(status_code=400, detail="answer_key must have integer string keys and integer values.")
 
-    # Check if model answers file exists
-    if not MODEL_ANSWERS_FILE.exists():
-        raise HTTPException(
-            status_code=400,
-            detail="No model answers found. Please upload model answers first using /upload_model_answers endpoint."
-        )
-    # Load model answers
-    with open(MODEL_ANSWERS_FILE, "r") as f:
-        model_answers = ModelAnswers(**json.load(f))
-
-    # Save uploaded file to temp
-    FileManager.cleanup_output_folder()
-    FileManager.cleanup_static_folder()
-    timestamp = int(time.time())
-    filename = f"bubble_sheet_{timestamp}.jpg"
-    file_path = OUTPUT_DIR / filename
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # Process the image using bubble scanner
-    results = process_bubble_sheet(str(file_path), model_answers=model_answers.answers)
-    if results is None:
-        raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
-
-    # Prepare student answers and grading
-    student_answers = []
-    correct_count = 0
-    multi_answers = []
-    for i in range(model_answers.number_of_questions):
-        question_key = f"question_{i+1}"
-        qdata = results.get(question_key, {})
-        detected_answers = qdata.get('detected_answers', [])
-        # If more than one answer, mark as wrong
-        if isinstance(detected_answers, list) and len(detected_answers) > 1:
-            student_answers.append(detected_answers)
-            multi_answers.append(i+1)
-        elif isinstance(detected_answers, list) and len(detected_answers) == 1:
-            ans = detected_answers[0]
-            student_answers.append(ans)
-            if ans == model_answers.answers[i]:
-                correct_count += 1
+        # Download image from imageUrl or decode from imageBase64
+        if request.imageBase64:
+            try:
+                image_data = base64.b64decode(request.imageBase64)
+                image = Image.open(BytesIO(image_data))
+                timestamp = int(time.time())
+                filename = f"bubble_sheet_{timestamp}.jpg"
+                file_path = OUTPUT_DIR / filename
+                image.save(file_path)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to decode base64 image: {e}")
+        elif request.imageUrl:
+            try:
+                logger.info(f"Attempting to download image from URL: {request.imageUrl}")
+                response = requests.get(request.imageUrl, timeout=30)
+                response.raise_for_status()
+                
+                timestamp = int(time.time())
+                filename = f"bubble_sheet_{timestamp}.jpg"
+                file_path = OUTPUT_DIR / filename
+                
+                with open(file_path, "wb") as f:
+                    f.write(response.content)
+                logger.info(f"Successfully downloaded and saved image to: {file_path}")
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error downloading image from URL: {e}")
+                raise HTTPException(status_code=400, detail=f"Failed to download image from URL: {str(e)}")
+            except Exception as e:
+                logger.error(f"Unexpected error processing URL image: {e}")
+                raise HTTPException(status_code=400, detail=f"Error processing image from URL: {str(e)}")
         else:
-            student_answers.append(None)
+            raise HTTPException(status_code=400, detail="No image provided. Please provide imageUrl or imageBase64.")
 
-    # Always re-generate the combined image for each /grade call to ensure freshness
-    combine_images(output_dir=str(TEMP_DIR))
-    combined_img_path = TEMP_DIR / "combined_questions.jpg"
-    if not combined_img_path.exists():
-        raise HTTPException(status_code=500, detail="Failed to generate combined image.")
-    pil_img = Image.open(str(combined_img_path)).convert("RGB")
-    buffered = BytesIO()
-    pil_img.save(buffered, format="JPEG")
-    img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        # Process the image using bubble scanner
+        results = process_bubble_sheet(str(file_path), model_answers=model_answers_list)
+        if results is None:
+            raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
 
-    # Calculate score (exclude multi-answers and unanswered from correct count)
-    score = (correct_count / model_answers.number_of_questions) * 100 if model_answers.number_of_questions > 0 else 0
+        # Prepare student answers as a dict {"1": answer, ...}
+        student_answers = {}
+        correct_count = 0
+        multi_answers = []
+        for idx, qnum in enumerate(question_numbers):
+            question_key = f"question_{qnum}"
+            qdata = results.get(question_key, {})
+            detected_answers = qdata.get('detected_answers', [])
+            if isinstance(detected_answers, list) and len(detected_answers) > 1:
+                student_answers[str(qnum)] = detected_answers
+                multi_answers.append(qnum)
+            elif isinstance(detected_answers, list) and len(detected_answers) == 1:
+                ans = detected_answers[0]
+                student_answers[str(qnum)] = ans
+                if ans == model_answers_list[idx]:
+                    correct_count += 1
+            else:
+                student_answers[str(qnum)] = None
 
-    # Check if all questions have 4 bubbles detected
-    not_four_bubbles = [q for q, qdata in results.items() if isinstance(qdata, dict) and qdata.get('bubbles_detected', 4) != 4]
-    if not_four_bubbles:
-        raise HTTPException(
-            status_code=400,
-            detail= "Please provide a more clear image and try again."
-        )
+        # Always re-generate the combined image for each /grade call to ensure freshness
+        success = combine_images(output_dir=str(TEMP_DIR))
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to generate combined image.")
 
-    return {
-        "image_base64": img_base64,
-        "student_answers": student_answers,
-        "correct_answers": correct_count,
-        "score": score,
-        "total_questions": model_answers.number_of_questions,
-        "multi_answer_questions": multi_answers
-    }
+        combined_img_path = TEMP_DIR / "combined_questions.jpg"
+        if not combined_img_path.exists():
+            raise HTTPException(status_code=500, detail="Failed to generate combined image.")
+
+        pil_img = Image.open(str(combined_img_path)).convert("RGB")
+        buffered = BytesIO()
+        pil_img.save(buffered, format="JPEG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+        # Calculate score (exclude multi-answers and unanswered from correct count)
+        score = (correct_count / len(model_answers_list)) * 100 if len(model_answers_list) > 0 else 0
+
+        return {
+            "student_answers": student_answers,
+            "correct_answers": correct_count,
+            "score": score,
+            "total_questions": len(model_answers_list),
+            "multi_answer_questions": multi_answers,
+            "processed_image": img_base64
+        }
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error in grade_bubble_sheet: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/output/combined_questions.jpg")
 async def get_combined_image():
@@ -581,13 +630,16 @@ async def startup_event():
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         os.makedirs(TEMP_DIR, exist_ok=True)
         
+        # Set proper permissions for the directories
+        try:
+            os.chmod(OUTPUT_DIR, 0o777)
+            os.chmod(TEMP_DIR, 0o777)
+        except Exception as e:
+            logger.warning(f"Could not set directory permissions: {e}")
+        
         # Clean up old files
-        for file in os.listdir(TEMP_DIR):
-            if file.startswith('combined_questions_'):
-                try:
-                    os.remove(os.path.join(TEMP_DIR, file))
-                except Exception as e:
-                    logger.error(f"Error removing old file {file}: {e}")
+        FileManager.cleanup_output_folder()
+        FileManager.cleanup_static_folder()
     except Exception as e:
         logger.error(f"Error during startup cleanup: {e}")
 

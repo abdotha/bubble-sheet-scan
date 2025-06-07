@@ -7,7 +7,7 @@ import shutil
 def combine_images(output_dir='static'):
     try:
         # Directory containing the images
-        image_dir = 'output/results'
+        image_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output', 'results')
         print(f"Looking for images in directory: {image_dir}")
         
         if not os.path.exists(image_dir):
