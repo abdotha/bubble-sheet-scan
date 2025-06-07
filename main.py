@@ -110,8 +110,10 @@ class BubbleSheetValidator:
                 continue
                 
             if data['bubbles_detected'] != REQUIRED_BUBBLES_PER_QUESTION:
-                logger.warning(f"Invalid bubble count for {question_key}: {data['bubbles_detected']}")
-                invalid_questions.append(f"{question_key}: {data['bubbles_detected']} bubbles")
+                # Only consider it invalid if there's no clear answer
+                if not data.get('answer'):
+                    logger.warning(f"Invalid bubble count for {question_key}: {data['bubbles_detected']}")
+                    invalid_questions.append(f"{question_key}: {data['bubbles_detected']} bubbles")
                 
         # If we have invalid questions, log them all
         if invalid_questions:
@@ -531,14 +533,7 @@ async def upload_base64_image(image_data: Base64Image):
             raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
         
         # Validate the results
-        if not BubbleSheetValidator.validate_results(results):
-            logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
-            # Instead of raising an error, return the results with a warning
-            return JSONResponse({
-                "results": results,
-                "warning": "Some questions may have incorrect bubble detection. Please verify the results.",
-                "combined_image": "/static/combined_questions.jpg"
-            })
+        validation_result = BubbleSheetValidator.validate_results(results)
         
         # After processing, combine all images
         logger.info("Starting image combination")
@@ -560,11 +555,16 @@ async def upload_base64_image(image_data: Base64Image):
         
         logger.info("Processing completed successfully")
         
-        # Prepare response data
+        # Prepare response data with timestamp to prevent caching
         response_data = {
             "results": results,
-            "combined_image": "/static/combined_questions.jpg"
+            "combined_image": f"/static/combined_questions.jpg?t={timestamp}",
+            "timestamp": timestamp
         }
+        
+        # Only add warning if validation failed
+        if not validation_result:
+            response_data["warning"] = "Some questions may have incorrect bubble detection. Please verify the results."
         
         return JSONResponse(response_data)
         

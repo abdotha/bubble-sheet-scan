@@ -132,9 +132,12 @@ document.getElementById('uploadForm').onsubmit = async (e) => {
         resultsHtml += '</tbody></table></div>';
         results.innerHTML = resultsHtml;
         
-        // Display combined image
+        // Display combined image with timestamp to prevent caching
         if (data.combined_image) {
-            preview.src = data.combined_image + '?t=' + new Date().getTime();
+            // Clear any existing image
+            preview.src = '';
+            // Force browser to reload the image
+            preview.src = data.combined_image;
             preview.style.display = 'block';
         }
     } catch (error) {
