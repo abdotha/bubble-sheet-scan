@@ -355,7 +355,7 @@ async def evaluate_bubble_sheet(file: UploadFile = File(...)):
             logger.error("Invalid bubble sheet detected - not all questions have 4 bubbles")
             raise HTTPException(
                 status_code=400,
-                detail="Invalid bubble sheet detected. Please ensure your image has all bubbles clearly visible and try again."
+                detail="Please provide a more clear image where all bubbles are clearly visible and try again."
             )
         
         # After processing, combine all images
@@ -542,6 +542,13 @@ async def grade_bubble_sheet(request: BubbleSheetData):
         results = process_bubble_sheet(str(file_path), model_answers=model_answers_list)
         if results is None:
             raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
+
+        # Validate that all questions have 4 detected bubbles
+        if not BubbleSheetValidator.validate_results(results):
+            raise HTTPException(
+                status_code=400,
+                detail="Please provide a more clear image where all bubbles are clearly visible and try again."
+            )
 
         # Prepare student answers as a dict {"1": answer, ...}
         student_answers = {}
