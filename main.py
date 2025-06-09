@@ -611,6 +611,22 @@ async def grade_bubble_sheet(request: BubbleSheetData):
             new_img = np.ones((new_height, img.shape[1], 3), dtype=np.uint8) * 255
             new_img[white_height:, :] = img
             
+            # Enhanced black line removal in the first N rows after the white area
+            N = 40  # Number of rows to check (increase for robustness)
+            threshold = 70  # Brightness threshold for black line (slightly higher for cloud)
+
+            scan_rows = new_img[white_height:white_height+N, :]
+            gray = cv2.cvtColor(scan_rows, cv2.COLOR_BGR2GRAY)
+            row_means = np.mean(gray, axis=1)
+
+            # Find contiguous block of dark rows (likely a line)
+            black_mask = row_means < threshold
+            if np.any(black_mask):
+                indices = np.where(black_mask)[0]
+                start = indices[0]
+                end = indices[-1]
+                new_img[white_height + start:white_height + end + 1, :] = [255, 255, 255]
+            
             # Add score text to the white area
             score_text = f"Score: {correct_count}/{len(model_answers_list)}"
             font = cv2.FONT_HERSHEY_SIMPLEX
@@ -624,18 +640,6 @@ async def grade_bubble_sheet(request: BubbleSheetData):
             
             # Add the score text
             cv2.putText(new_img, score_text, (text_x, text_y), font, font_scale, (0, 0, 0), font_thickness)
-            
-            # Check for and remove black line in the first row
-            first_row = new_img[white_height:white_height+5, :]  # Check first 5 rows after white area
-            # Convert to grayscale for easier processing
-            gray = cv2.cvtColor(first_row, cv2.COLOR_BGR2GRAY)
-            # Check if there's a black line (pixels with very low values)
-            if np.mean(gray) < 50:  # If average brightness is very low
-                # Find the actual line position
-                row_means = np.mean(gray, axis=1)
-                line_row = np.argmin(row_means)
-                # Replace the line with white
-                new_img[white_height + line_row, :] = [255, 255, 255]
             
             # Save the modified image
             cv2.imwrite(str(combined_img_path), new_img)
