@@ -19,6 +19,8 @@ import base64
 from io import BytesIO
 from PIL import Image
 import requests  # Import requests at the top level
+import cv2  # Import cv2 for OpenCV
+import numpy as np  # Import numpy for array operations
 
 # Configure logging
 logging.basicConfig(
@@ -141,11 +143,32 @@ MODEL_ANSWERS_FILE = OUTPUT_DIR / "model_answers.json"
 async def lifespan(app: FastAPI):
     """Lifespan context manager for FastAPI application"""
     # Startup
-    FileManager.ensure_directories_exist()
+    try:
+        # Create necessary directories
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        os.makedirs(TEMP_DIR, exist_ok=True)
+        
+        # Set proper permissions for the directories
+        try:
+            os.chmod(OUTPUT_DIR, 0o777)
+            os.chmod(TEMP_DIR, 0o777)
+        except Exception as e:
+            logger.warning(f"Could not set directory permissions: {e}")
+        
+        # Clean up old files
+        FileManager.cleanup_output_folder()
+        FileManager.cleanup_static_folder()
+    except Exception as e:
+        logger.error(f"Error during startup cleanup: {e}")
+    
     yield
+    
     # Shutdown
-    FileManager.cleanup_output_folder()
-    FileManager.cleanup_static_folder()
+    try:
+        FileManager.cleanup_output_folder()
+        FileManager.cleanup_static_folder()
+    except Exception as e:
+        logger.error(f"Error during shutdown cleanup: {e}")
 
 # Create FastAPI app
 app = FastAPI(
@@ -540,6 +563,7 @@ async def grade_bubble_sheet(request: BubbleSheetData):
 
         # Process the image using bubble scanner
         results = process_bubble_sheet(str(file_path), model_answers=model_answers_list)
+        
         if results is None:
             raise HTTPException(status_code=500, detail="Failed to process bubble sheet")
 
@@ -578,6 +602,33 @@ async def grade_bubble_sheet(request: BubbleSheetData):
         if not combined_img_path.exists():
             raise HTTPException(status_code=500, detail="Failed to generate combined image.")
 
+        # Read the combined image with OpenCV to add score
+        img = cv2.imread(str(combined_img_path))
+        if img is not None:
+            # Add white area at the top
+            white_height = 80  # Height of white area
+            new_height = img.shape[0] + white_height
+            new_img = np.ones((new_height, img.shape[1], 3), dtype=np.uint8) * 255
+            new_img[white_height:, :] = img
+            
+            # Add score text to the white area
+            score_text = f"Score: {correct_count}/{len(model_answers_list)}"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 1.5
+            font_thickness = 3
+            
+            # Get text size and position it at the center of white area
+            (text_width, text_height), _ = cv2.getTextSize(score_text, font, font_scale, font_thickness)
+            text_x = (new_img.shape[1] - text_width) // 2  # Center horizontally
+            text_y = (white_height + text_height) // 2  # Center vertically in white area
+            
+            # Add the score text
+            cv2.putText(new_img, score_text, (text_x, text_y), font, font_scale, (0, 0, 0), font_thickness)
+            
+            # Save the modified image
+            cv2.imwrite(str(combined_img_path), new_img)
+
+        # Convert to base64 for response
         pil_img = Image.open(str(combined_img_path)).convert("RGB")
         buffered = BytesIO()
         pil_img.save(buffered, format="JPEG")
@@ -628,27 +679,6 @@ async def get_combined_image():
     except Exception as e:
         logger.error(f"Error serving combined image: {e}")
         raise HTTPException(status_code=500, detail="Error serving image")
-
-@app.on_event("startup")
-async def startup_event():
-    """Clean up temporary files on startup"""
-    try:
-        # Create necessary directories
-        os.makedirs(OUTPUT_DIR, exist_ok=True)
-        os.makedirs(TEMP_DIR, exist_ok=True)
-        
-        # Set proper permissions for the directories
-        try:
-            os.chmod(OUTPUT_DIR, 0o777)
-            os.chmod(TEMP_DIR, 0o777)
-        except Exception as e:
-            logger.warning(f"Could not set directory permissions: {e}")
-        
-        # Clean up old files
-        FileManager.cleanup_output_folder()
-        FileManager.cleanup_static_folder()
-    except Exception as e:
-        logger.error(f"Error during startup cleanup: {e}")
 
 if __name__ == "__main__":
     import uvicorn
