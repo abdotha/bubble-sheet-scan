@@ -625,6 +625,18 @@ async def grade_bubble_sheet(request: BubbleSheetData):
             # Add the score text
             cv2.putText(new_img, score_text, (text_x, text_y), font, font_scale, (0, 0, 0), font_thickness)
             
+            # Check for and remove black line in the first row
+            first_row = new_img[white_height:white_height+5, :]  # Check first 5 rows after white area
+            # Convert to grayscale for easier processing
+            gray = cv2.cvtColor(first_row, cv2.COLOR_BGR2GRAY)
+            # Check if there's a black line (pixels with very low values)
+            if np.mean(gray) < 50:  # If average brightness is very low
+                # Find the actual line position
+                row_means = np.mean(gray, axis=1)
+                line_row = np.argmin(row_means)
+                # Replace the line with white
+                new_img[white_height + line_row, :] = [255, 255, 255]
+            
             # Save the modified image
             cv2.imwrite(str(combined_img_path), new_img)
 
