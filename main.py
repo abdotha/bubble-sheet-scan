@@ -611,7 +611,7 @@ async def grade_bubble_sheet(request: BubbleSheetData):
             new_img = np.ones((new_height, img.shape[1], 3), dtype=np.uint8) * 255
             new_img[white_height:, :] = img
             
-            # Further enhanced black line removal in the first N rows after the white area
+            # Further enhanced black line removal and gap removal
             N = 60  # Scan more rows for robustness
             threshold = 80  # Lower threshold to catch lighter lines
 
@@ -625,7 +625,10 @@ async def grade_bubble_sheet(request: BubbleSheetData):
                 indices = np.where(black_mask)[0]
                 start = max(indices[0] - 2, 0)  # Remove 2 rows above
                 end = min(indices[-1] + 2, N-1)  # Remove 2 rows below
-                new_img[white_height + start:white_height + end + 1, :] = [255, 255, 255]
+                # Remove the gap by vertically stacking the parts above and below the white area
+                part_above = new_img[:white_height + start, :]
+                part_below = new_img[white_height + end + 1:, :]
+                new_img = np.vstack([part_above, part_below])
             
             # Add score text to the white area
             score_text = f"Score: {correct_count}/{len(model_answers_list)}"
