@@ -611,9 +611,9 @@ async def grade_bubble_sheet(request: BubbleSheetData):
             new_img = np.ones((new_height, img.shape[1], 3), dtype=np.uint8) * 255
             new_img[white_height:, :] = img
             
-            # Enhanced black line removal in the first N rows after the white area
-            N = 40  # Number of rows to check (increase for robustness)
-            threshold = 70  # Brightness threshold for black line (slightly higher for cloud)
+            # Further enhanced black line removal in the first N rows after the white area
+            N = 60  # Scan more rows for robustness
+            threshold = 80  # Lower threshold to catch lighter lines
 
             scan_rows = new_img[white_height:white_height+N, :]
             gray = cv2.cvtColor(scan_rows, cv2.COLOR_BGR2GRAY)
@@ -623,8 +623,8 @@ async def grade_bubble_sheet(request: BubbleSheetData):
             black_mask = row_means < threshold
             if np.any(black_mask):
                 indices = np.where(black_mask)[0]
-                start = indices[0]
-                end = indices[-1]
+                start = max(indices[0] - 2, 0)  # Remove 2 rows above
+                end = min(indices[-1] + 2, N-1)  # Remove 2 rows below
                 new_img[white_height + start:white_height + end + 1, :] = [255, 255, 255]
             
             # Add score text to the white area
