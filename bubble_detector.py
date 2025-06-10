@@ -24,18 +24,12 @@ class BubbleDetector:
         self.debug = True  # Set to False to disable debug output
 
     def preprocess(self, img):
-        """Simple preprocessing with mean filter and salt-and-pepper noise reduction"""
+        """More tolerant preprocessing"""
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Remove salt and pepper noise using median filter
-        denoised = cv2.medianBlur(gray, 3)
-        
-        # Apply mean filter (box filter)
-        mean_filtered = cv2.boxFilter(denoised, -1, (5, 5), normalize=True)
         
         # Gentle contrast enhancement
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        enhanced = clahe.apply(mean_filtered)
+        enhanced = clahe.apply(gray)
         
         # Mild smoothing
         blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
@@ -166,11 +160,20 @@ class BubbleDetector:
         return selected_idx
 
     def visualize(self, img, bubbles, rejected, selected_indices):
-        """Visualize results with fill ratio information"""
+        """Visualize results with fill ratio information and bounding boxes"""
         result = img.copy()
+        
+        # Draw rejected contours in yellow
+        # cv2.drawContours(result, rejected, -1, self.rejected_color, 2)
         
         # Draw all bubbles
         for i, bubble in enumerate(bubbles):
+            # Get bounding rectangle
+            x, y, w, h = cv2.boundingRect(bubble['contour'])
+            
+            # Draw blue bounding box
+            cv2.rectangle(result, (x, y), (x + w, y + h), (255, 0, 0), 2)
+            
             # Set color based on selection status
             if i in selected_indices:
                 color = self.selected_color
@@ -181,6 +184,14 @@ class BubbleDetector:
             
             # Draw bubble contour
             cv2.drawContours(result, [bubble['contour']], -1, color, thickness)
+            
+            # Add bubble number and fill ratio
+            # text = f"{i+1}: {bubble['fill_ratio']:.2f}"
+            # # Position text above the bubble
+            # text_y = max(y - 5, 20)  # Ensure text doesn't go off the top of the image
+            # cv2.putText(result, text, 
+            #            (x, text_y),
+            #            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         
         return result
 
@@ -207,9 +218,12 @@ class BubbleDetector:
             # Draw bubble contour (fill)
             cv2.drawContours(result, [bubble['contour']], -1, color, thickness)
             
-            # Draw green box only for model answer
+            # Draw bounding box
             if i == model_answer:
-                cv2.rectangle(result, (x, y), (x + w, y + h), self.selected_color, 2)
+                box_color = self.selected_color  # Green for model answer
+            else:
+                box_color = (255, 0, 0)  # Blue for other bubbles
+            cv2.rectangle(result, (x, y), (x + w, y + h), box_color, 2)
         
         return result
 
