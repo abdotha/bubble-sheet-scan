@@ -3,45 +3,36 @@ import numpy as np
 
 class BubbleDetector:
     def __init__(self):
-        # More flexible size parameters
         self.min_diameter = 25   
-        self.max_diameter = 100  # Maximum size
-        self.min_area = int(np.pi * (self.min_diameter/2)**2)  # Calculate area from diameter
+        self.max_diameter = 100
+        self.min_area = int(np.pi * (self.min_diameter/2)**2)
         self.max_area = int(np.pi * (self.max_diameter/2)**2)
         
-        # Relaxed shape parameters
-        self.min_circularity = 0.20  # Reduced from 0.5 to allow less circular shapes
-        self.max_aspect_ratio = 2.5  # Increased from 1.5
+        self.min_circularity = 0.20
+        self.max_aspect_ratio = 2.5
         
-        # Adjusted selection parameters
         self.dark_threshold = 120
-        self.fill_ratio_threshold = 0.46  # Slightly reduced
+        self.fill_ratio_threshold = 0.46
         
-        # Visualization
-        self.selected_color = (0, 255, 0)  # Green
-        self.unselected_color = (200, 200, 200)  # Gray
-        self.rejected_color = (0, 255, 255)  # Yellow for rejected contours
-        self.debug = True  # Set to False to disable debug output
+        self.selected_color = (0, 255, 0)
+        self.unselected_color = (200, 200, 200)
+        self.rejected_color = (0, 255, 255)
+        self.debug = True
 
     def preprocess(self, img):
-        """More tolerant preprocessing"""
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
-        # Gentle contrast enhancement
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         enhanced = clahe.apply(gray)
         
-        # Mild smoothing
         blurred = cv2.GaussianBlur(enhanced, (3, 3), 0)
         
-        # Adaptive thresholding
         binary = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                      cv2.THRESH_BINARY_INV, 21, 7)
         
         return binary, enhanced
 
     def find_bubbles(self, img):
-        """More flexible bubble detection"""
         binary, enhanced = self.preprocess(img)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
@@ -54,14 +45,11 @@ class BubbleDetector:
             perimeter = cv2.arcLength(cnt, True)
             circularity = 4 * np.pi * area / (perimeter**2) if perimeter > 0 else 0
             
-            # Get bounding rectangle and aspect ratio
             _, _, w, h = cv2.boundingRect(cnt)
             aspect_ratio = max(w, h) / min(w, h) if min(w, h) > 0 else 0
             
-            # Calculate equivalent diameter
             diameter = 2 * np.sqrt(area / np.pi)
             
-            # Size and shape validation
             size_ok = self.min_area < area < self.max_area
             shape_ok = (circularity > self.min_circularity and 
                        aspect_ratio < self.max_aspect_ratio)
@@ -88,7 +76,6 @@ class BubbleDetector:
                 if self.debug:
                     print(f"Valid bubble - Fill ratio: {fill_ratio:.2f}, Mean intensity: {mean_val:.1f}")
             else:
-                # Determine rejection reason
                 rejection_reason = []
                 if not size_ok:
                     if area <= self.min_area:
@@ -118,10 +105,7 @@ class BubbleDetector:
                 print(f"  Shape OK: {shape_ok}")
                 print(f"  Rejection Reason: {rejection_reason}")
         
-        # Sort bubbles right-to-left (0 is rightmost, 3 is leftmost)
         bubbles.sort(key=lambda b: b['center'][0], reverse=True)
-        
-        # Ensure we only keep the first 4 bubbles (0-3)
         bubbles = bubbles[:4]
         
         return bubbles, rejected
@@ -133,11 +117,9 @@ class BubbleDetector:
         return (0, 0)
 
     def analyze_selections(self, bubbles):
-        """Select bubbles based on fill ratio analysis"""
         if not bubbles:
             return []
             
-        # Print detailed fill ratio analysis
         print("\n=== Fill Ratio Analysis ===")
         for i, bubble in enumerate(bubbles):
             print(f"Bubble {i+1}:")
@@ -146,11 +128,9 @@ class BubbleDetector:
             print(f"  Area: {bubble['area']:.1f}")
             print(f"  Circularity: {bubble['circularity']:.3f}")
         
-        # Find bubbles with fill ratio above threshold
         selected_idx = [i for i, b in enumerate(bubbles) 
                        if b['fill_ratio'] > self.fill_ratio_threshold]
         
-        # Sort selected bubbles by fill ratio (highest first)
         selected_idx.sort(key=lambda i: bubbles[i]['fill_ratio'], reverse=True)
         
         print(f"\nSelected bubbles (fill ratio > {self.fill_ratio_threshold}):")
@@ -160,21 +140,13 @@ class BubbleDetector:
         return selected_idx
 
     def visualize(self, img, bubbles, rejected, selected_indices):
-        """Visualize results with fill ratio information and bounding boxes"""
         result = img.copy()
         
-        # Draw rejected contours in yellow
-        # cv2.drawContours(result, rejected, -1, self.rejected_color, 2)
-        
-        # Draw all bubbles
         for i, bubble in enumerate(bubbles):
-            # Get bounding rectangle
             x, y, w, h = cv2.boundingRect(bubble['contour'])
             
-            # Draw blue bounding box
             cv2.rectangle(result, (x, y), (x + w, y + h), (255, 0, 0), 2)
             
-            # Set color based on selection status
             if i in selected_indices:
                 color = self.selected_color
                 thickness = 3
@@ -182,47 +154,32 @@ class BubbleDetector:
                 color = self.unselected_color
                 thickness = 1
             
-            # Draw bubble contour
             cv2.drawContours(result, [bubble['contour']], -1, color, thickness)
-            
-            # Add bubble number and fill ratio
-            # text = f"{i+1}: {bubble['fill_ratio']:.2f}"
-            # # Position text above the bubble
-            # text_y = max(y - 5, 20)  # Ensure text doesn't go off the top of the image
-            # cv2.putText(result, text, 
-            #            (x, text_y),
-            #            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
         
         return result
 
     def visualize_with_answers(self, img, bubbles, rejected, selected_indices, model_answer):
-        """Visualize results with color coding based on model answer"""
         result = img.copy()
         
-        # Use selected_indices and model_answer directly (0 = leftmost)
         for i, bubble in enumerate(bubbles):
-            # Get bounding rectangle
             x, y, w, h = cv2.boundingRect(bubble['contour'])
             
-            # Set color based on selection and answer status
             if i in selected_indices and i == model_answer:
-                color = self.selected_color  # Green for correct answer (selected and model answer)
+                color = self.selected_color
                 thickness = 3
             elif i in selected_indices:
-                color = (0, 0, 255)  # Red for incorrect answer (selected but not model answer)
+                color = (0, 0, 255)
                 thickness = 3
             else:
                 color = self.unselected_color
                 thickness = 1
             
-            # Draw bubble contour (fill)
             cv2.drawContours(result, [bubble['contour']], -1, color, thickness)
             
-            # Draw bounding box
             if i == model_answer:
-                box_color = self.selected_color  # Green for model answer
+                box_color = self.selected_color
             else:
-                box_color = (255, 0, 0)  # Blue for other bubbles
+                box_color = (255, 0, 0)
             cv2.rectangle(result, (x, y), (x + w, y + h), box_color, 2)
         
         return result
@@ -236,29 +193,18 @@ class BubbleDetector:
         bubbles, rejected = self.find_bubbles(img)
         selected = self.analyze_selections(bubbles)
         
-        # Use appropriate visualization based on whether model_answer is provided
         if model_answer is not None:
             result = self.visualize_with_answers(img, bubbles, rejected, selected, model_answer)
         else:
             result = self.visualize(img, bubbles, rejected, selected)
         
-        # Console reporting
         print("\n=== Final Results ===")
         print(f"Found {len(bubbles)} valid bubbles (rejected {len(rejected)} contours)")
         print(f"Selected bubbles: {selected}")
         if model_answer is not None:
             print(f"Model answer: {model_answer}")
-            print(f"Correct answer: {model_answer in selected}")
         
-        print("\nBubble Statistics:")
-        for i, bubble in enumerate(bubbles):
-            status = "SELECTED" if i in selected else "unselected"
-            print(f"Bubble {i}: {status}")
-            print(f"  Diameter: {bubble['diameter']:.1f}px")
-            print(f"  Fill ratio: {bubble['fill_ratio']:.2f}")
-            print(f"  Circularity: {bubble['circularity']:.2f}\n")
-        
-        return result, bubbles, selected, rejected
+        return result, bubbles, rejected, selected
 
 
 if __name__ == "__main__":
@@ -268,7 +214,7 @@ if __name__ == "__main__":
     
     # Example usage with model answer
     model_answer = 4  # Replace with actual model answer
-    result, bubbles, selected, rejected = detector.process(input_img, model_answer)
+    result, bubbles, rejected, selected = detector.process(input_img, model_answer)
     if result is not None:
         cv2.imwrite(output_img, result)
         print(f"Results saved to {output_img}")
